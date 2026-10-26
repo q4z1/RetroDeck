@@ -95,7 +95,7 @@ SDL_Color accent(System system) {
 }
 
 enum class Action { none, up, down, left, right, pageUp, pageDown, prevSystem, nextSystem, accept, back, option, favorite, menu };
-enum class Screen { library, settings, quit };
+enum class Screen { library, settings, game, quit };
 
 struct Art {
     SDL_Texture *texture = nullptr;
@@ -119,7 +119,7 @@ public:
 
 private:
     // State
-    fs::path root_, settingsFile_;
+    fs::path root_, settingsFile_, gamesFile_;
     Toolchain toolchain_;
     Settings settings_;
     Library library_;
@@ -129,6 +129,7 @@ private:
     int system_ = 0;
     Screen screen_ = Screen::library;
     int settingsRow_ = 0;
+    int gameRow_ = 0;            // in the game's options (X)
     Pads pads_;
     std::vector<Display> displays_;
     Process process_;
@@ -173,6 +174,7 @@ private:
     void handle(Action action, SDL_JoystickID from = -1);
     void handleLibrary(Action action);
     void handleSettings(Action action);
+    void handleGameOptions(Action action);
     void moveSelection(int delta);
     void changeSystem(int delta);
     void launch();
@@ -197,6 +199,7 @@ private:
     void drawDetails(SDL_Rect area);
     void drawFooter();
     void drawSettings();
+    void drawGameOptions();
     void drawQuit();
     void drawPrompt();
     void drawToast();
@@ -229,6 +232,8 @@ bool App::init(int argc, char **argv) {
     toolchain_ = Toolchain::locate(root_, executableDir(), libraryFolders(root_, root_ / "library.conf", System::amiga));
     settingsFile_ = configDir() / "settings.conf";
     settings_.load(settingsFile_);
+    gamesFile_ = configDir() / "games.conf";
+    settings_.loadGames(gamesFile_);
 
     // Controllers keep working while an emulator has the focus (for the
     // quit combination) and while the window is hidden
@@ -299,6 +304,7 @@ bool App::init(int argc, char **argv) {
     rescan();
     if (startSelect >= 0) selected_[static_cast<std::size_t>(system_)] = startSelect;
     if (startScreen == "settings") screen_ = Screen::settings;
+    if (startScreen == "game" && current()) screen_ = Screen::game;
     if (startScreen == "quit") screen_ = Screen::quit;
     if (startScreen == "prompt" && current()) {
         prompt_ = true;
@@ -316,7 +322,7 @@ bool App::init(int argc, char **argv) {
         std::string error;
         const std::vector<fs::path> media = mediaFiles(*game, cacheDir() / "unpacked", error);
         const Pad *pad = pads_.active(settings_.pad);
-        const Launch plan = planLaunch(*game, media, settings_, toolchain_, pad, pads_.childView(pad), targetConnector(), error);
+        const Launch plan = planLaunch(*game, media, settings_.forGame(game->key), toolchain_, pad, pads_.childView(pad), targetConnector(), error);
         std::printf("%s (%s)\n", game->title.c_str(), game->key.c_str());
         for (const Display &display : displays_)
             std::printf("display %d: %s [%s]\n", display.index, display.name.c_str(), display.connector.c_str());
@@ -358,13 +364,16 @@ void App::makeScreenshots(bool onlySelected) {
     if (games.empty()) std::printf("Alle Spiele haben schon einen Screenshot.\n");
     for (const Game *game : games) {
         const fs::path png = screenshotPath(*game);
-        const int seconds = screenshotSeconds_ > 0 ? screenshotSeconds_ : screenshotSeconds(game->system);
+        // --seconds, else the game's own (its options), else the system's
+        const auto options = settings_.games.find(game->key);
+        const int own = options != settings_.games.end() ? options->second.screenshotSeconds : 0;
+        const int seconds = screenshotSeconds_ > 0 ? screenshotSeconds_ : own > 0 ? own : screenshotSeconds(game->system);
         std::printf("%-8s %-32s %3d s ... ", systemName(game->system), game->title.c_str(), seconds);
         std::fflush(stdout);
         std::string error;
         const std::vector<fs::path> media = mediaFiles(*game, cacheDir() / "unpacked", error);
         Launch plan;
-        if (!media.empty()) plan = planScreenshot(*game, media, settings_, toolchain_, png, seconds, error);
+        if (!media.empty()) plan = planScreenshot(*game, media, settings_.forGame(game->key), toolchain_, png, seconds, error);
         std::error_code ignored;
         fs::create_directories(png.parent_path(), ignored);
         fs::remove(png, ignored);
@@ -534,6 +543,7 @@ void App::handle(Action action, SDL_JoystickID from) {
     switch (screen_) {
     case Screen::library: handleLibrary(action); break;
     case Screen::settings: handleSettings(action); break;
+    case Screen::game: handleGameOptions(action); break;
     case Screen::quit:
         if (action == Action::accept) quit_ = true;
         else if (action == Action::back) screen_ = Screen::library;
@@ -581,10 +591,9 @@ void App::handleLibrary(Action action) {
         }
         break;
     case Action::option:
-        if (system() == System::plus4) {
-            settings_.plus4Emulator = nextPlus4Emulator(settings_.plus4Emulator, 1);
-            settings_.save(settingsFile_);
-            say("Plus/4 startet mit " + toolchain_.emulatorName(System::plus4, settings_));
+        if (current()) {
+            screen_ = Screen::game;
+            gameRow_ = 0;
         }
         break;
     default: break;
@@ -644,6 +653,150 @@ void App::handleSettings(Action action) {
     settings_.save(settingsFile_);
 }
 
+// ---------------------------------------------------------------- a game's options
+
+// What a game can choose for itself (X), by system: each starts at
+// "Vorgabe", the setting, and steps through its own values
+enum class GameRow { emulator, joyPort, amigaModel, loadTurbo, screenshot, reset };
+
+std::vector<GameRow> gameRows(System system) {
+    switch (system) {
+    case System::plus4:
+        return {GameRow::emulator, GameRow::joyPort, GameRow::loadTurbo, GameRow::screenshot, GameRow::reset};
+    case System::c64: return {GameRow::joyPort, GameRow::loadTurbo, GameRow::screenshot, GameRow::reset};
+    case System::amiga: return {GameRow::amigaModel, GameRow::loadTurbo, GameRow::screenshot, GameRow::reset};
+    case System::mega65: return {GameRow::screenshot, GameRow::reset};
+    }
+    return {GameRow::reset};
+}
+
+std::string amigaModelLabel(const std::string &model) {
+    return model == "A500_ECS_1MB" ? "A500 · ECS" : "A500 · OCS";
+}
+
+void App::handleGameOptions(Action action) {
+    const Game *game = current();
+    if (!game) {
+        screen_ = Screen::library;
+        return;
+    }
+    const std::vector<GameRow> rows = gameRows(game->system);
+    const int count = static_cast<int>(rows.size());
+    const int step = action == Action::left ? -1 : action == Action::right || action == Action::accept ? 1 : 0;
+    switch (action) {
+    case Action::up: gameRow_ = (gameRow_ + count - 1) % count; return;
+    case Action::down: gameRow_ = (gameRow_ + 1) % count; return;
+    case Action::back:
+    case Action::option: screen_ = Screen::library; return;
+    default: break;
+    }
+    if (step == 0) return;
+    gameRow_ = std::clamp(gameRow_, 0, count - 1);
+    GameOptions options = settings_.games[game->key];
+    auto cycle = [step](int index, int size) { return (index + step + size) % size; };
+    switch (rows[static_cast<std::size_t>(gameRow_)]) {
+    case GameRow::emulator: {
+        static const std::array<const char *, 4> order{"", "vice", "yape", "plus4emu"};
+        int index = 0;
+        for (int i = 0; i < 4; ++i) if (options.plus4Emulator == order[static_cast<std::size_t>(i)]) index = i;
+        options.plus4Emulator = order[static_cast<std::size_t>(cycle(index, 4))];
+        break;
+    }
+    case GameRow::joyPort: options.joyPort = cycle(options.joyPort, 3); break;
+    case GameRow::amigaModel: {
+        static const std::array<const char *, 3> order{"", "A500_OCS_1MB", "A500_ECS_1MB"};
+        int index = 0;
+        for (int i = 0; i < 3; ++i) if (options.amigaModel == order[static_cast<std::size_t>(i)]) index = i;
+        options.amigaModel = order[static_cast<std::size_t>(cycle(index, 3))];
+        break;
+    }
+    case GameRow::loadTurbo: options.loadTurbo = cycle(options.loadTurbo + 1, 3) - 1; break; // -1, 0, 1
+    case GameRow::screenshot:
+        // 0 (the system's), then 5 to 300 s in steps of 5
+        options.screenshotSeconds = cycle(options.screenshotSeconds / 5, 61) * 5;
+        break;
+    case GameRow::reset:
+        if (action != Action::accept) return;
+        options = {};
+        say("Alles auf Vorgabe");
+        break;
+    }
+    if (options.empty()) settings_.games.erase(game->key);
+    else settings_.games[game->key] = options;
+    settings_.saveGames(gamesFile_);
+}
+
+void App::drawGameOptions() {
+    const Game *game = current();
+    if (!game) return;
+    const std::vector<GameRow> rows = gameRows(game->system);
+    const auto found = settings_.games.find(game->key);
+    const GameOptions options = found != settings_.games.end() ? found->second : GameOptions{};
+    auto standard = [](const std::string &value) { return "Vorgabe (" + value + ")"; };
+
+    const int rowH = S(52);
+    const int w = std::min(width_ - S(80), S(760));
+    const int h = std::min(height_ - S(60), S(150) + static_cast<int>(rows.size()) * rowH + S(70));
+    fillRect(renderer_, {0, 0, width_, height_}, SDL_Color{0, 0, 0, 160});
+    const SDL_Rect box{(width_ - w) / 2, (height_ - h) / 2, w, h};
+    fillRounded(renderer_, box, S(20), panel);
+    outlineRounded(renderer_, box, S(20), std::max(1, S(2)), withAlpha(accent(system()), 90));
+    fonts_->draw(head_, S(36), box.x + S(32), box.y + S(22), "Spiel-Optionen", ink);
+    fonts_->draw(semi_, S(20), box.x + S(34), box.y + S(74), fonts_->fit(semi_, S(20), game->title, w - S(68)), muted);
+
+    int y = box.y + S(120);
+    for (int i = 0; i < static_cast<int>(rows.size()); ++i) {
+        std::string label, value;
+        switch (rows[static_cast<std::size_t>(i)]) {
+        case GameRow::emulator:
+            label = "Plus/4-Emulator";
+            value = options.plus4Emulator.empty() ? standard(plus4EmulatorLabel(settings_.plus4Emulator))
+                                                  : plus4EmulatorLabel(options.plus4Emulator);
+            break;
+        case GameRow::joyPort:
+            label = "Joystick-Port";
+            value = options.joyPort ? "Port " + std::to_string(options.joyPort) : standard("Port " + std::to_string(settings_.joyPort));
+            break;
+        case GameRow::amigaModel:
+            label = "Amiga-Modell";
+            value = options.amigaModel.empty() ? standard(amigaModelLabel(settings_.amigaModel)) : amigaModelLabel(options.amigaModel);
+            break;
+        case GameRow::loadTurbo:
+            label = "Turbo beim Laden";
+            value = options.loadTurbo < 0 ? standard(settings_.loadTurbo ? "Ja" : "Nein") : options.loadTurbo ? "Ja" : "Nein";
+            break;
+        case GameRow::screenshot:
+            label = "Screenshot nach";
+            value = options.screenshotSeconds ? std::to_string(options.screenshotSeconds) + " s"
+                                              : standard(std::to_string(screenshotSeconds(game->system)) + " s");
+            break;
+        case GameRow::reset: label = "Alles auf Vorgabe"; break;
+        }
+        const SDL_Rect row{box.x + S(20), y, box.w - S(40), rowH - S(6)};
+        const bool selected = i == gameRow_;
+        if (selected) {
+            fillRounded(renderer_, row, S(12), panelHigh);
+            fillRounded(renderer_, {row.x + S(6), row.y + S(12), S(4), row.h - S(24)}, S(2), accent(system()));
+        }
+        fonts_->draw(semi_, S(21), row.x + S(22), row.y + S(8), label, selected ? ink : muted);
+        if (!value.empty()) {
+            const std::string shown = fonts_->fit(body_, S(20), value, row.w / 2);
+            const int right = row.x + row.w - (selected ? S(44) : S(20));
+            const int shownW = fonts_->draw(body_, S(20), right, row.y + S(9), shown, selected ? accent(system()) : SDL_Color{200, 207, 218, 255}, Align::right);
+            if (selected) {
+                fillArrow(renderer_, right - shownW - S(18), row.y + row.h / 2, S(12), -1, accent(system()));
+                fillArrow(renderer_, right + S(18), row.y + row.h / 2, S(12), 1, accent(system()));
+            }
+        }
+        y += rowH;
+    }
+    const int cy = box.y + box.h - S(34);
+    int x = box.x + S(32);
+    x += hint(x, cy, ctlAccept, "Ändern");
+    hint(x, cy, ctlBack, "Zurück");
+    fonts_->draw(body_, S(17), box.x + box.w - S(32), cy - S(12), "Nur für dieses Spiel", faint, Align::right);
+}
+
 // ---------------------------------------------------------------- launching
 
 void App::launch() {
@@ -654,7 +807,7 @@ void App::launch() {
     const Pad *pad = pads_.active(settings_.pad);
     const ChildPads view = pads_.childView(pad);
     Launch plan;
-    if (!media.empty()) plan = planLaunch(*game, media, settings_, toolchain_, pad, view, targetConnector(), error);
+    if (!media.empty()) plan = planLaunch(*game, media, settings_.forGame(game->key), toolchain_, pad, view, targetConnector(), error);
     if (plan.argv.empty() || !process_.start(plan, cacheDir() / "last-run.log", error)) {
         say(error, true);
         return;
@@ -930,6 +1083,7 @@ void App::draw() {
     drawDetails({margin + listW + gap, top, width_ - 2 * margin - listW - gap, bottom - top - S(8)});
     drawFooter();
     if (screen_ == Screen::settings) drawSettings();
+    if (screen_ == Screen::game) drawGameOptions();
     if (screen_ == Screen::quit) drawQuit();
     drawToast();
 }
@@ -1071,12 +1225,14 @@ void App::drawDetails(SDL_Rect area) {
     }
     y += S(8);
 
-    const std::string problem = toolchain_.missing(game->system, settings_);
-    const std::vector<std::pair<std::string, std::string>> facts{
+    const Settings settings = settings_.forGame(game->key);
+    const std::string problem = toolchain_.missing(game->system, settings);
+    std::vector<std::pair<std::string, std::string>> facts{
         {"Format", game->format + "  ·  " + formatBytes(game->bytes)},
-        {"Emulator", toolchain_.emulatorName(game->system, settings_)},
-        {"Ordner", game->folder + (game->archive.empty() ? "" : "  (ZIP)")},
+        {"Emulator", toolchain_.emulatorName(game->system, settings)},
     };
+    if (game->system == System::c64 || game->system == System::plus4) facts.emplace_back("Joystick", "Port " + std::to_string(settings.joyPort));
+    facts.emplace_back("Ordner", game->folder + (game->archive.empty() ? "" : "  (ZIP)"));
     const int labelW = S(110);
     for (const auto &[label, value] : facts) {
         if (y + S(28) > area.y + area.h - S(56)) break;
@@ -1130,7 +1286,7 @@ void App::drawFooter() {
     int x = S(40);
     x += hint(x, cy, ctlAccept, "Starten");
     x += hint(x, cy, ctlFavorite, "Favorit");
-    if (system() == System::plus4) x += hint(x, cy, ctlOption, plus4EmulatorLabel(settings_.plus4Emulator));
+    if (current()) x += hint(x, cy, ctlOption, "Optionen");
     x += hint(x, cy, ctlMenu, "Einstellungen");
     hint(x, cy, ctlBack, "Beenden");
     // In-game: how to get back (F12 in all emulators: RETRODECK_PID)

@@ -94,7 +94,7 @@ In the launcher:
 | LT / RT | Page up / down | eight games up / down |
 | A | Enter | start |
 | Y | F | favorite (favorites come first) |
-| X | X | Plus/4: VICE, YapeSDL or plus4emu |
+| X | X | the game's own options (see below) |
 | Menu (Start) | M, F1 | settings |
 | B | Escape | quit RetroDeck |
 
@@ -183,7 +183,26 @@ of its settings in `~/.config/retrodeck/plus4emu` (`PLUS4EMU_HOME`), not
 in your `~/.plus4emu`.
 
 *Joystick port* switches C64 and Plus/4 games between port 2 (most games)
-and port 1.
+and port 1 – for all of them; a game that wants the other port gets it in
+its own options.
+
+### A game's own options
+
+**X** on a game opens its options: what this one game wants instead of the
+settings. Each starts at *Vorgabe* (the setting, shown in brackets) and
+steps through its own values; *Alles auf Vorgabe* clears them.
+
+| | for | |
+| --- | --- | --- |
+| Plus/4-Emulator | Plus/4 | VICE, YapeSDL or plus4emu |
+| Joystick-Port | C64, Plus/4 | port 1 or 2 (Boulder Dash reads port 1) |
+| Amiga-Modell | Amiga | A500 OCS or ECS |
+| Turbo beim Laden | all but MEGA65 | yes or no (no for a game whose music plays while it loads) |
+| Screenshot nach | all | seconds until its title, for `--make-screenshots` |
+
+They are kept in `~/.config/retrodeck/games.conf`, under the game's file
+(`ZIP#file` for one in a ZIP): starting the game, its details (emulator,
+joystick port) and its screenshot follow them.
 
 In Game Mode, Steam shows every controller as a "Steam Virtual Gamepad" with
 the same vendor and product; they cannot be hidden from each other by that,
@@ -295,8 +314,8 @@ beside the game). VICE (also for Plus/4 games) runs in warp for a number of
 cycles and writes the PRG straight into memory (`-autostartprgmode 1`), Xemu
 runs headless and as fast as it can, the Amiga in real time. The defaults
 are 25 s (C64, Plus/4), 30 s (MEGA65) and 40 s (Amiga); a game whose title is
-earlier or later, or comes and goes with a demo, gets its own `--seconds`
-(Paradroid: 9). Titles behind a question (Another World's code wheel) are
+earlier or later, or comes and goes with a demo, gets its own time in its
+options (*Screenshot nach*; Paradroid: 9 s), and `--seconds` overrides all. Titles behind a question (Another World's code wheel) are
 out of reach this way. The list cuts a frame in one colour off the
 pictures, such as the black around Xemu's.
 
@@ -309,7 +328,7 @@ pictures, such as the black around Xemu's.
 | `src/common/` | text (stb_truetype), shapes and images, shared by both |
 | `third_party/stb/` | stb_truetype, stb_image, stb_image_write (public domain), pinned commit in `VERSION` |
 | `assets/fonts/` | Rajdhani and Titillium Web (SIL Open Font License, licence texts beside them), from [google/fonts](https://github.com/google/fonts) |
-| `~/.config/retrodeck/` | settings, favorites, VICE's settings (`vice/sdl-vicerc`), YapeSDL's (`yape/Gaia/yapeSDL/yape.conf`), plus4emu's (`plus4emu/`) |
+| `~/.config/retrodeck/` | settings, favorites, a game's own options (`games.conf`), VICE's settings (`vice/sdl-vicerc`), YapeSDL's (`yape/Gaia/yapeSDL/yape.conf`), plus4emu's (`plus4emu/`) |
 | `~/.cache/retrodeck/` | games unpacked from ZIPs (anew when a ZIP is replaced), `last-run.log` (the emulator's output of the last start) |
 
 For checking things without a screen:
