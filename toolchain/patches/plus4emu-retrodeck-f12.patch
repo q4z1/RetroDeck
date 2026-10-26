@@ -1,0 +1,28 @@
+diff --git a/gui/gui.cpp b/gui/gui.cpp
+index a9d43f3..5801460 100644
+--- a/gui/gui.cpp
++++ b/gui/gui.cpp
+@@ -21,6 +21,8 @@
+ #include "guicolor.hpp"
+ #include "pngwrite.hpp"
+ #include <map>
++#include <csignal>
++#include <cstdlib>
+ 
+ #ifdef LINUX_FLTK_VERSION
+ #  undef LINUX_FLTK_VERSION
+@@ -1070,6 +1072,14 @@ int Plus4EmuGUI::handleFLTKEvent(void *userData, int event)
+     {
+       int   keyCode = Fl::event_key();
+       bool  isKeyPress = (event == FL_KEYDOWN);
++      // RETRODECK_PID: F12 asks RetroDeck, which started plus4emu, whether
++      // to end the game (as the controller's View does)
++      if (keyCode == (FL_F + 12) && std::getenv("RETRODECK_PID") != (char *) 0 &&
++          std::atoi(std::getenv("RETRODECK_PID")) > 0) {
++        if (isKeyPress)
++          kill(pid_t(std::atoi(std::getenv("RETRODECK_PID"))), SIGUSR1);
++        return 1;
++      }
+       if (!(keyCode >= (FL_F + 9) && keyCode <= (FL_F + 12))) {
+         int   n = gui_.config.convertKeyCode(keyCode);
+         if (n >= 0 && (gui_.functionKeyState == 0U || !isKeyPress)) {

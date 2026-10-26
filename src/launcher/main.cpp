@@ -25,9 +25,13 @@
 
 #include <SDL.h>
 
+#include <unistd.h>
+
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
+#include <csignal>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -63,6 +67,22 @@ constexpr SDL_Color panel{27, 33, 43, 255}, panelHigh{38, 46, 60, 255}, panelLow
 constexpr SDL_Color ink{236, 240, 245, 255}, muted{140, 151, 168, 255}, faint{78, 88, 104, 255};
 constexpr SDL_Color warn{255, 176, 72, 255}, bad{240, 92, 92, 255};
 constexpr SDL_Color buttonA{61, 190, 91, 255}, buttonB{229, 72, 77, 255}, buttonX{58, 141, 255, 255}, buttonY{245, 197, 66, 255};
+
+// What a hint shows: the controller's button, or the key that does the same
+// (keyAction) when the keyboard was used last
+struct Control {
+    const char *button;
+    SDL_Color color;
+    bool round;
+    const char *key;
+};
+constexpr Control ctlAccept{"A", buttonA, true, "Enter"}, ctlBack{"B", buttonB, true, "Esc"};
+constexpr Control ctlFavorite{"Y", buttonY, true, "F"}, ctlOption{"X", buttonX, true, "X"};
+constexpr Control ctlMenu{"Menu", muted, false, "M"}, ctlPrevSystem{"LB", muted, false, "Q"}, ctlNextSystem{"RB", muted, false, "E"};
+
+// An emulator asks to end its game (RETRODECK_PID, SIGUSR1: F12 there)
+std::atomic<bool> askToEnd{false};
+void onAskToEnd(int) { askToEnd = true; }
 
 SDL_Color accent(System system) {
     switch (system) {
@@ -131,6 +151,9 @@ private:
     Action held_ = Action::none;
     Uint32 heldNext_ = 0;
     int stickX_ = 0, stickY_ = 0;
+    // Hints show keys instead of buttons: the keyboard was used last (or
+    // there was no controller at the start)
+    bool keyboard_ = false;
 
     // Video
     SDL_Window *window_ = nullptr;
@@ -177,8 +200,10 @@ private:
     void drawQuit();
     void drawPrompt();
     void drawToast();
-    void glyph(int x, int cy, const std::string &label, SDL_Color color, bool round = true);
-    int hint(int x, int cy, const std::string &label, SDL_Color color, const std::string &text, bool round = true);
+    int glyphWidth(const Control &control) const;
+    void glyph(int x, int cy, const Control &control);
+    int hint(int x, int cy, const Control &control, const std::string &text);
+    int hintWidth(const Control &control, const std::string &text) const;
     void saveScreenshot();
 };
 
@@ -187,6 +212,7 @@ private:
 bool App::init(int argc, char **argv) {
     int windowW = 0, windowH = 0, startSystem = -1, startSelect = -1;
     std::string startScreen;
+    bool forceKeyboard = false; // hints with keys (for screenshots)
     for (int i = 1; i < argc; ++i) {
         const bool more = i + 1 < argc;
         if (!std::strcmp(argv[i], "--window") && more) std::sscanf(argv[++i], "%dx%d", &windowW, &windowH);
@@ -195,6 +221,7 @@ bool App::init(int argc, char **argv) {
         else if (!std::strcmp(argv[i], "--select") && more) startSelect = std::atoi(argv[++i]);
         else if (!std::strcmp(argv[i], "--screen") && more) startScreen = argv[++i];
         else if (!std::strcmp(argv[i], "--dry-run")) dryRun_ = true;
+        else if (!std::strcmp(argv[i], "--keyboard")) forceKeyboard = true;
         else if (!std::strcmp(argv[i], "--make-screenshots")) makeScreenshots_ = true;
         else if (!std::strcmp(argv[i], "--seconds") && more) screenshotSeconds_ = std::atoi(argv[++i]);
     }
@@ -206,6 +233,10 @@ bool App::init(int argc, char **argv) {
     // Controllers keep working while an emulator has the focus (for the
     // quit combination) and while the window is hidden
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    // The emulators (RetroDeck's builds) send SIGUSR1 here for F12, which
+    // asks whether to end the game as View does
+    setenv("RETRODECK_PID", std::to_string(getpid()).c_str(), 1);
+    std::signal(SIGUSR1, onAskToEnd);
     SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0");
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
     if (dryRun_ || makeScreenshots_) SDL_SetHint(SDL_HINT_VIDEODRIVER, "offscreen");
@@ -221,6 +252,7 @@ bool App::init(int argc, char **argv) {
         std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return false;
     }
+    keyboard_ = forceKeyboard || SDL_NumJoysticks() == 0;
     Uint32 flags = SDL_WINDOW_ALLOW_HIGHDPI;
     if (windowW > 0 && windowH > 0) {
         flags |= SDL_WINDOW_RESIZABLE;
@@ -465,6 +497,7 @@ void App::pollHeld(Uint32 now) {
         pageUp |= SDL_GameControllerGetAxis(pad.controller, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > 16000;
         pageDown |= SDL_GameControllerGetAxis(pad.controller, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 16000;
     }
+    if (x || y || pageUp || pageDown) keyboard_ = false;
     if (y != stickY_) {
         stickY_ = y;
         if (y) handle(y < 0 ? Action::up : Action::down);
@@ -627,6 +660,7 @@ void App::launch() {
         return;
     }
     running_ = true;
+    askToEnd = false;
     stopRequested_ = false;
     runningTitle_ = game->title;
     settings_.lastGame = game->key;
@@ -756,8 +790,10 @@ int App::run() {
             case SDL_CONTROLLERDEVICEREMOVED:
                 if (const Pad *pad = pads_.find(event.cdevice.which); pad && !running_) say(pad->name + " getrennt");
                 pads_.close(event.cdevice.which);
+                if (pads_.list().empty()) keyboard_ = true;
                 break;
             case SDL_CONTROLLERBUTTONDOWN:
+                keyboard_ = false;
                 if (running_) {
                     pads_.used(event.cbutton.which);
                     if (prompt_) promptButton(event.cbutton.button);
@@ -771,9 +807,11 @@ int App::run() {
                 break;
             case SDL_KEYDOWN:
                 if (event.key.repeat) break;
+                keyboard_ = true;
                 if (running_ && prompt_) {
                     if (keyAction(event.key.keysym.sym, event.key.keysym.mod) == Action::accept) quitGame();
                     else if (keyAction(event.key.keysym.sym, event.key.keysym.mod) == Action::back) resumeGame();
+                    else if (event.key.keysym.sym == SDLK_F12) resumeGame(); // as View again
                 } else if (!running_) {
                     handle(keyAction(event.key.keysym.sym, event.key.keysym.mod));
                 }
@@ -793,6 +831,11 @@ int App::run() {
         const Uint32 now = SDL_GetTicks();
         if (running_) {
             watchCombo(now);
+            // F12 in the emulator: the question, with keys in its hints
+            if (askToEnd.exchange(false) && !prompt_ && !stopRequested_) {
+                keyboard_ = true;
+                openPrompt();
+            }
             if (!process_.running()) finished();
         }
         if (running_ && !prompt_) {
@@ -904,22 +947,22 @@ void App::drawHeader() {
 
     // The controller that plays
     const Pad *pad = pads_.active(settings_.pad);
-    const std::string label = pad ? pad->name : "Kein Controller";
+    const std::string label = pad ? pad->name : "Tastatur";
     const std::string battery = pad ? pad->battery() : "";
     const int textW = std::min(fonts_->width(semi_, S(19), label), S(330));
     const int chipW = textW + S(64) + (battery.empty() ? 0 : fonts_->width(body_, S(16), battery) + S(16));
     const SDL_Rect chip{width_ - margin - clockW - S(24) - chipW, S(26), chipW, S(40)};
     fillRounded(renderer_, chip, S(20), withAlpha(panelHigh, 220));
-    fillCircle(renderer_, chip.x + S(20), chip.y + S(20), S(11), pad ? buttonA : bad);
-    fonts_->draw(head_, S(16), chip.x + S(20), chip.y + S(10), pad ? pad->kind.substr(0, 1) : "!", bgTop, Align::center);
-    fonts_->draw(semi_, S(19), chip.x + S(40), chip.y + S(7), fonts_->fit(semi_, S(19), label, S(330)), pad ? ink : muted);
+    fillCircle(renderer_, chip.x + S(20), chip.y + S(20), S(11), pad ? buttonA : buttonX);
+    fonts_->draw(head_, S(16), chip.x + S(20), chip.y + S(10), pad ? pad->kind.substr(0, 1) : "T", bgTop, Align::center);
+    fonts_->draw(semi_, S(19), chip.x + S(40), chip.y + S(7), fonts_->fit(semi_, S(19), label, S(330)), ink);
     if (!battery.empty()) fonts_->draw(body_, S(16), chip.x + S(40) + textW + S(14), chip.y + S(10), battery, muted);
 
     // System tabs between the shoulder buttons
     int x = margin;
     const int cy = S(128);
-    glyph(x, cy, "LB", muted, false);
-    x += S(52);
+    glyph(x, cy, ctlPrevSystem);
+    x += glyphWidth(ctlPrevSystem) + S(12);
     for (System sys : allSystems) {
         const bool active = sys == system();
         const std::string name = systemName(sys);
@@ -933,7 +976,7 @@ void App::drawHeader() {
         fonts_->draw(semi_, S(16), badge.x + badge.w / 2, badge.y - S(2), count, active ? bgTop : faint, Align::center);
         x += tab.w + S(12);
     }
-    glyph(x + S(4), cy, "RB", muted, false);
+    glyph(x + S(4), cy, ctlNextSystem);
 }
 
 void App::drawList(SDL_Rect area) {
@@ -1046,27 +1089,37 @@ void App::drawDetails(SDL_Rect area) {
     if (!problem.empty()) {
         fonts_->draw(semi_, S(18), area.x + pad, by + S(4), fonts_->fit(semi_, S(18), problem, textW), warn);
     } else {
-        hint(area.x + pad, by + S(18), "A", buttonA, "Starten");
+        hint(area.x + pad, by + S(18), ctlAccept, "Starten");
     }
 }
 
-void App::glyph(int x, int cy, const std::string &label, SDL_Color color, bool round) {
-    if (round) {
-        fillCircle(renderer_, x + S(15), cy, S(15), color);
-        fonts_->draw(head_, S(20), x + S(15), cy - S(12), label, bgTop, Align::center);
-    } else {
-        const int w = std::max(S(40), fonts_->width(head_, S(18), label) + S(16));
-        fillRounded(renderer_, {x, cy - S(14), w, S(28)}, S(8), withAlpha(color, 60));
-        outlineRounded(renderer_, {x, cy - S(14), w, S(28)}, S(8), std::max(1, S(2)), withAlpha(color, 160));
-        fonts_->draw(head_, S(18), x + w / 2, cy - S(11), label, ink, Align::center);
-    }
+// A round button, or a key cap (also for the controller's Menu, LB, RB),
+// in the button's colour
+int App::glyphWidth(const Control &control) const {
+    if (control.round && !keyboard_) return S(30);
+    return std::max(S(40), fonts_->width(head_, S(18), keyboard_ ? control.key : control.button) + S(16));
 }
 
-int App::hint(int x, int cy, const std::string &label, SDL_Color color, const std::string &text, bool round) {
-    glyph(x, cy, label, color, round);
-    const int glyphW = round ? S(30) : std::max(S(40), fonts_->width(head_, S(18), label) + S(16));
-    const int w = fonts_->draw(semi_, S(19), x + glyphW + S(10), cy - S(14), text, SDL_Color{205, 212, 222, 255});
-    return glyphW + S(10) + w + S(30);
+void App::glyph(int x, int cy, const Control &control) {
+    if (control.round && !keyboard_) {
+        fillCircle(renderer_, x + S(15), cy, S(15), control.color);
+        fonts_->draw(head_, S(20), x + S(15), cy - S(12), control.button, bgTop, Align::center);
+        return;
+    }
+    const int w = glyphWidth(control);
+    fillRounded(renderer_, {x, cy - S(14), w, S(28)}, S(8), withAlpha(control.color, 60));
+    outlineRounded(renderer_, {x, cy - S(14), w, S(28)}, S(8), std::max(1, S(2)), withAlpha(control.color, 160));
+    fonts_->draw(head_, S(18), x + w / 2, cy - S(11), keyboard_ ? control.key : control.button, ink, Align::center);
+}
+
+int App::hint(int x, int cy, const Control &control, const std::string &text) {
+    glyph(x, cy, control);
+    const int w = fonts_->draw(semi_, S(19), x + glyphWidth(control) + S(10), cy - S(14), text, SDL_Color{205, 212, 222, 255});
+    return glyphWidth(control) + S(10) + w + S(30);
+}
+
+int App::hintWidth(const Control &control, const std::string &text) const {
+    return glyphWidth(control) + S(10) + fonts_->width(semi_, S(19), text);
 }
 
 void App::drawFooter() {
@@ -1075,13 +1128,13 @@ void App::drawFooter() {
     fillRect(renderer_, {0, y, width_, std::max(1, S(1))}, withAlpha(faint, 120));
     const int cy = y + S(32);
     int x = S(40);
-    x += hint(x, cy, "A", buttonA, "Starten");
-    x += hint(x, cy, "Y", buttonY, "Favorit");
-    if (system() == System::plus4) x += hint(x, cy, "X", buttonX, plus4EmulatorLabel(settings_.plus4Emulator));
-    x += hint(x, cy, "Menu", muted, "Einstellungen", false);
-    hint(x, cy, "B", buttonB, "Beenden");
-    // In-game: how to get back
-    const std::string back = "Im Spiel: View = Beenden";
+    x += hint(x, cy, ctlAccept, "Starten");
+    x += hint(x, cy, ctlFavorite, "Favorit");
+    if (system() == System::plus4) x += hint(x, cy, ctlOption, plus4EmulatorLabel(settings_.plus4Emulator));
+    x += hint(x, cy, ctlMenu, "Einstellungen");
+    hint(x, cy, ctlBack, "Beenden");
+    // In-game: how to get back (F12 in all emulators: RETRODECK_PID)
+    const std::string back = keyboard_ ? "Im Spiel: F12 = Beenden" : "Im Spiel: View = Beenden";
     fonts_->draw(body_, S(17), width_ - S(40), cy - S(12), back, faint, Align::right);
 }
 
@@ -1154,9 +1207,11 @@ void App::drawSettings() {
     }
     const int cy = box.y + box.h - S(34);
     int x = box.x + S(32);
-    x += hint(x, cy, "A", buttonA, "Ändern");
-    x += hint(x, cy, "B", buttonB, "Zurück");
-    fonts_->draw(body_, S(17), box.x + box.w - S(32), cy - S(12), "Steuerkreuz links/rechts wechselt den Wert", faint, Align::right);
+    x += hint(x, cy, ctlAccept, "Ändern");
+    x += hint(x, cy, ctlBack, "Zurück");
+    fonts_->draw(body_, S(17), box.x + box.w - S(32), cy - S(12),
+                 keyboard_ ? "Pfeiltasten links/rechts wechseln den Wert" : "Steuerkreuz links/rechts wechselt den Wert",
+                 faint, Align::right);
 }
 
 void App::drawQuit() {
@@ -1166,9 +1221,9 @@ void App::drawQuit() {
     fillRounded(renderer_, box, S(20), panel);
     fonts_->draw(head_, S(34), box.x + w / 2, box.y + S(32), "RetroDeck beenden?", ink, Align::center);
     const int cy = box.y + h - S(52);
-    int x = box.x + S(120);
-    x += hint(x, cy, "A", buttonA, "Beenden");
-    hint(x, cy, "B", buttonB, "Abbrechen");
+    int x = box.x + (w - hintWidth(ctlAccept, "Beenden") - S(30) - hintWidth(ctlBack, "Abbrechen")) / 2;
+    x += hint(x, cy, ctlAccept, "Beenden");
+    hint(x, cy, ctlBack, "Abbrechen");
 }
 
 // Over a paused game: end it or play on. The game's screenshot, if there
@@ -1193,11 +1248,10 @@ void App::drawPrompt() {
     const std::string title = fonts_->fit(head_, S(34), runningTitle_ + " beenden?", w - S(64));
     fonts_->draw(head_, S(34), box.x + w / 2, box.y + S(62), title, ink, Align::center);
     const int cy = box.y + h - S(56);
-    const int buttonsW = S(30) + S(10) + fonts_->width(semi_, S(19), "Beenden") + S(30) + S(30) + S(10) +
-                         fonts_->width(semi_, S(19), "Weiterspielen");
+    const int buttonsW = hintWidth(ctlAccept, "Beenden") + S(30) + hintWidth(ctlBack, "Weiterspielen");
     int x = box.x + (w - buttonsW) / 2;
-    x += hint(x, cy, "A", buttonA, "Beenden");
-    hint(x, cy, "B", buttonB, "Weiterspielen");
+    x += hint(x, cy, ctlAccept, "Beenden");
+    hint(x, cy, ctlBack, "Weiterspielen");
 }
 
 void App::drawToast() {

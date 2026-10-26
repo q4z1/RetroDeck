@@ -12,7 +12,9 @@
 // Controller                           Keyboard
 //   left stick, D-pad  joystick port 2   Amiga keys as on a PC keyboard
 //   A                  fire              F11  fullscreen on/off
-//   B / X / Y          Space / Return / F1   F12  quit
+//   B / X / Y          Space / Return / F1   F12  RetroDeck's question
+//                                              "end the game?" (quit when
+//                                              not started by RetroDeck)
 //   Menu               P (pause in many games)
 //   right stick        mouse (port 1), RT/LT left/right button
 //   View + LB/RB       previous/next disk in DF0
@@ -31,6 +33,7 @@
 #include <algorithm>
 #include <atomic>
 #include <csignal>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -53,6 +56,13 @@ constexpr int textureW = 2 * HPIXELS, cropX = 4 * 69, cropY = 0x1a, cropW = 4 * 
 
 std::atomic<bool> stopSignal{false};
 void onSignal(int) { stopSignal = true; }
+
+// RETRODECK_PID: asks RetroDeck, which started this, whether to end the
+// game (as the controller's View does); false when not started by it
+bool askRetroDeck() {
+    const char *pid = std::getenv("RETRODECK_PID");
+    return pid && std::atoi(pid) > 0 && ::kill(std::atoi(pid), SIGUSR1) == 0;
+}
 
 struct Options {
     fs::path kickstart;
@@ -390,7 +400,7 @@ void Frontend::handle(const SDL_Event &event) {
     case SDL_KEYDOWN:
     case SDL_KEYUP: {
         const bool down = event.type == SDL_KEYDOWN;
-        if (event.key.keysym.scancode == SDL_SCANCODE_F12 && down) quit_ = true;
+        if (event.key.keysym.scancode == SDL_SCANCODE_F12 && down && !event.key.repeat && !askRetroDeck()) quit_ = true;
         if (event.key.keysym.scancode == SDL_SCANCODE_F11 && down) {
             const bool full = SDL_GetWindowFlags(window_) & SDL_WINDOW_FULLSCREEN_DESKTOP;
             SDL_SetWindowFullscreen(window_, full ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);

@@ -1,0 +1,24 @@
+diff --git a/main.cpp b/main.cpp
+index 05f5dfa..3a6fa88 100644
+--- a/main.cpp
++++ b/main.cpp
+@@ -19,6 +19,7 @@
+ #include <cstring>
+ #include <cctype>
+ #include <cmath>
++#include <csignal>
+ #include "keyboard.h"
+ #include "cpu.h"
+ #include "tedmem.h"
+@@ -1114,6 +1115,11 @@ inline static void poll_events(void)
+ 						g_bActive = false;
+ 						break;
+ 					case SDLK_F12 :
++						// RETRODECK_PID: asks RetroDeck, which started Yape,
++						// whether to end the game (as the controller's View)
++						if (getenv("RETRODECK_PID") && atoi(getenv("RETRODECK_PID")) > 0
++							&& kill(atoi(getenv("RETRODECK_PID")), SIGUSR1) == 0)
++							break;
+ 						exit(0);
+ 					default :
+ 						return;

@@ -1,0 +1,28 @@
+diff --git a/xemu/emutools_hid.c b/xemu/emutools_hid.c
+index 17253406..b266f909 100644
+--- a/xemu/emutools_hid.c
++++ b/xemu/emutools_hid.c
+@@ -16,6 +16,8 @@ along with this program; if not, write to the Free Software
+ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+ 
+ #include "xemu/emutools.h"
++#include <signal.h>
++#include <stdlib.h>
+ #include "xemu/emutools_hid.h"
+ #ifdef HID_KBD_MAP_CFG_SUPPORT
+ #include "xemu/emutools_files.h"
+@@ -611,6 +613,14 @@ int hid_handle_one_sdl_event ( SDL_Event *event )
+ 			break;
+ 		case SDL_KEYUP:
+ 		case SDL_KEYDOWN:
++			// RETRODECK_PID: F12 asks RetroDeck, which started Xemu, whether
++			// to end the game (as the controller's View does)
++			if (event->key.keysym.scancode == SDL_SCANCODE_F12 && getenv("RETRODECK_PID") &&
++			    atoi(getenv("RETRODECK_PID")) > 0) {
++				if (event->type == SDL_KEYDOWN && !event->key.repeat)
++					kill((pid_t)atoi(getenv("RETRODECK_PID")), SIGUSR1);
++				break;
++			}
+ #ifdef XEMU_ARCH_ANDROID
+ 			if (event->type == SDL_KEYDOWN && event->key.keysym.sym == SDLK_AC_BACK) {	// Android "back" button
+ 				osk_show(!osk_status());

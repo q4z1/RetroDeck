@@ -139,6 +139,8 @@ unavailable() { # NAME COMMIT REPO BINARY
 #   vice-drive-warp  -drivewarp (DriveWarpOnActivity): warp while a drive
 #                    motor runs, so that games load fast also after the
 #                    autostart (multi-load, a loader after the intro)
+#   vice-retrodeck-f12  F12 asks RetroDeck (RETRODECK_PID) whether to end
+#                    the game; its menu goes to another key (MenuKey)
 vice_stamp=$(stamp "$VICE_VERSION" "$HERE"/patches/vice-*.patch)
 if want vice && ! up_to_date "$HERE/vice/bin/x64sc" "$vice_stamp"; then
     step "VICE $VICE_VERSION"
@@ -188,6 +190,8 @@ if want yapesdl; then
     #                       q4z1/yapesdl fix/sdl-gamepad-event-queue (909d319)
     #   yapesdl-load-turbo  YAPE_LOAD_TURBO=1: as fast as it goes while a
     #                       drive works (a true drive's motor, or the 1551)
+    #   yapesdl-retrodeck-f12  F12 asks RetroDeck (RETRODECK_PID) whether to
+    #                       end the game, instead of quitting
     s=$(stamp "$YAPE_COMMIT" "$HERE"/patches/yapesdl-*.patch)
     if ! up_to_date "$HERE/bin/yapesdl" "$s"; then
         step "YapeSDL"
@@ -258,6 +262,8 @@ if want xemu; then
     #   xemu-hdos-readfile-buffer  -hdosvirt's readfile maps the SD-card
     #                              buffer at $DE00 as Hyppo does (Space Commander
     #                              read the D81's buffer instead)
+    #   xemu-retrodeck-f12         F12 asks RetroDeck (RETRODECK_PID) whether
+    #                              to end the game
     s=$(stamp "$XEMU_COMMIT" "$HERE"/patches/xemu-*.patch)
     if ! up_to_date "$HERE/bin/xmega65" "$s"; then
         step "Xemu (MEGA65)"

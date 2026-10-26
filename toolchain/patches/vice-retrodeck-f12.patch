@@ -1,0 +1,42 @@
+--- a/src/arch/sdl/kbd.c
++++ b/src/arch/sdl/kbd.c
+@@ -33,7 +33,9 @@
+ #include "types.h"
+ 
+ #include "vice_sdl.h"
++#include <signal.h>
+ #include <stdio.h>
++#include <stdlib.h>
+ #include <string.h>
+ 
+ #include "archdep.h"
+@@ -220,6 +222,19 @@
+     return ret;
+ }
+ 
++/* RETRODECK_PID: F12 asks RetroDeck, which started VICE, whether to end
++   the game (as the controller's View does); VICE's menu is on another key
++   then (RetroDeck sets MenuKey) */
++static int retrodeck_ask(void)
++{
++    const char *pid = getenv("RETRODECK_PID");
++
++    if (pid == NULL || atoi(pid) <= 0) {
++        return 0;
++    }
++    return kill((pid_t)atoi(pid), SIGUSR1) == 0;
++}
++
+ void sdlkbd_press(SDLKey key, SDLMod mod)
+ {
+ #if 0
+@@ -247,6 +262,9 @@
+         }
+     }
+ #endif
++    if (SDL1x_to_SDL2x_Keys(key) == SDLK_F12 && retrodeck_ask()) {
++        return;
++    }
+     if ((int)(key) == sdl_ui_menukeys[0] && hotkeys_allowed_modifiers(mod) == KMOD_NONE) {
+         sdl_ui_activate();
+         return;

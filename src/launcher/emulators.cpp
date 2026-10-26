@@ -323,6 +323,9 @@ Launch planLaunch(const Game &game, const std::vector<fs::path> &media, const Se
         {
             std::ofstream rc(extra);
             rc << "[" << (c64 ? "C64SC" : "PLUS4") << "]\n";
+            // F12 is RetroDeck's (patches/vice-retrodeck-f12.patch): VICE's
+            // menu on F10 (291, as VICE numbers keys)
+            rc << "MenuKey=291\n";
             if (pad && view.index >= 0) {
                 writeViceJoymap(joymap, pad->controller, view.index);
                 rc << "JoyMapFile=" << viceQuote(joymap) << "\n";
