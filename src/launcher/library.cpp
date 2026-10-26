@@ -430,18 +430,30 @@ std::vector<fs::path> mediaFiles(const Game &game, const fs::path &cacheDir, std
     if (game.archive.empty()) return game.files;
     const std::size_t hash = std::hash<std::string>{}(game.archive.string());
     const fs::path target = cacheDir / (std::to_string(hash) + "-" + game.archive.stem().string());
+    // A ZIP replaced under the same name (a patched disk) is unpacked anew:
+    // the folder remembers the size and time of the ZIP it came from
+    std::error_code sizeFailed, timeFailed;
+    const auto size = fs::file_size(game.archive, sizeFailed);
+    const auto time = fs::last_write_time(game.archive, timeFailed).time_since_epoch().count();
+    const std::string stamp = std::to_string(size) + " " + std::to_string(time);
+    const fs::path stampFile = target / ".zip-stamp";
+    std::string unpacked;
+    if (std::ifstream in(stampFile); in) std::getline(in, unpacked);
+    const bool stale = !sizeFailed && !timeFailed && unpacked != stamp;
+    std::error_code ignored;
+    if (stale) fs::remove_all(target, ignored);
     // All of the archive, into one folder: games may need the files beside
     // their disks (data files a MEGA65 game loads from the SD card). Inside
     // the cache, files keep their names (emulators show them).
     for (const zip::Entry &entry : zip::list(game.archive)) {
         const fs::path out = target / fs::path(entry.name).filename();
-        std::error_code ignored;
         if (fs::exists(out, ignored)) continue;
         if (!zip::extract(game.archive, entry, out)) {
             error = "Konnte nicht entpackt werden: " + entry.name;
             return {};
         }
     }
+    if (stale) std::ofstream(stampFile) << stamp << "\n";
     std::vector<fs::path> files;
     for (const fs::path &member : game.files) files.push_back(target / member.filename());
     return files;

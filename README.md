@@ -259,7 +259,7 @@ pictures, such as the black around Xemu's.
 | `third_party/stb/` | stb_truetype, stb_image, stb_image_write (public domain), pinned commit in `VERSION` |
 | `assets/fonts/` | Rajdhani and Titillium Web (SIL Open Font License, licence texts beside them), from [google/fonts](https://github.com/google/fonts) |
 | `~/.config/retrodeck/` | settings, favorites, VICE's settings (`vice/sdl-vicerc`) |
-| `~/.cache/retrodeck/` | games unpacked from ZIPs, `last-run.log` (the emulator's output of the last start) |
+| `~/.cache/retrodeck/` | games unpacked from ZIPs (anew when a ZIP is replaced), `last-run.log` (the emulator's output of the last start) |
 
 For checking things without a screen:
 
