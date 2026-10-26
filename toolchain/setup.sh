@@ -170,6 +170,10 @@ fi
 
 if want yapesdl; then
     # Changes for RetroDeck, in this copy only (patches/):
+    #   yapesdl-gamepad     all of SDL's events each frame, not one (the
+    #                       gamepad's stick lagged seconds behind), and
+    #                       YAPE_PADKEYS=off: its buttons only fire; from
+    #                       q4z1/yapesdl fix/sdl-gamepad-event-queue (909d319)
     #   yapesdl-load-turbo  YAPE_LOAD_TURBO=1: as fast as it goes while a
     #                       drive works (a true drive's motor, or the 1551)
     s=$(stamp "$YAPE_COMMIT" "$HERE"/patches/yapesdl-*.patch)

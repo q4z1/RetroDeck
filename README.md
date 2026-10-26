@@ -44,7 +44,7 @@ the net, at pinned versions:
 | --- | --- |
 | VICE 3.10 | release tarball from SourceForge, SDL2 user interface, installed into `toolchain/vice/`, with `toolchain/patches/vice-drive-warp.patch` (`-drivewarp`: warp while a drive motor runs) |
 | xa 2.4.1, dos2unix | only for building VICE; xa from floodgap.com, dos2unix a stand-in script; both stay in `toolchain/src/shims/` |
-| YapeSDL | [q4z1/yapesdl](https://github.com/q4z1/yapesdl), branch `feature/start-fullscreen` (`YAPE_FULLSCREEN=1` opens it fullscreen), with `toolchain/patches/yapesdl-load-turbo.patch` (`YAPE_LOAD_TURBO=1`: warp while a drive works) |
+| YapeSDL | [q4z1/yapesdl](https://github.com/q4z1/yapesdl), branch `feature/start-fullscreen` (`YAPE_FULLSCREEN=1` opens it fullscreen), with `toolchain/patches/yapesdl-gamepad.patch` (all SDL events each frame, so the stick does not lag; `YAPE_PADKEYS=off`: the gamepad's buttons only fire; from the branch `fix/sdl-gamepad-event-queue`) and `toolchain/patches/yapesdl-load-turbo.patch` (`YAPE_LOAD_TURBO=1`: warp while a drive works) |
 | Xemu | [q4z1/xemu](https://github.com/q4z1/xemu), branch `audio-sync`, with the changes in `toolchain/patches/` applied to the clone: its window opens centered (see [Screens](#screens)), and `-hdosvirt`'s readfile maps the SD-card buffer at `$DE00` as Hyppo does (see [MEGA65 games with data files](#mega65-games-with-data-files)) |
 | vAmiga core | [dirkwhoffmann/vAmiga](https://github.com/dirkwhoffmann/vAmiga), the same commit as `amiga-run` in [q4z1/MEGA65](https://github.com/q4z1/MEGA65) |
 | `MEGA65.ROM` | built as mega65go does on Windows: the C65 ROM 910828 out of Cloanto's C64 Forever installer, patched with 920413.bdf from files.mega65.org, both checked by SHA-1; with cabextract 1.11 (cabextract.org.uk, built here), olefile 0.47 (GitHub) and the two scripts in `toolchain/tools/` (`msi-extract-cabs.py`, `bspatch.py`, part of this repository, taken over from [q4z1/MEGA65](https://github.com/q4z1/MEGA65)) |
@@ -137,6 +137,15 @@ controllers (the Deck's own, Steam's virtual gamepad, an Xbox controller).
 The launcher writes VICE's joystick map from SDL's controller mapping of the
 controller in use on every start (`~/.config/retrodeck/vice/retrodeck.vjm`),
 so A is fire and Menu is VICE's menu on all of them.
+
+YapeSDL takes a controller's right stick and D-pad as the joystick, and A
+as fire: the launcher hands it SDL's mapping of the controller in use with
+the left stick on the right one's axes too (`SDL_GAMECONTROLLERCONFIG`),
+and `YAPE_PADKEYS=off`, so the other buttons do none of Yape's own things.
+Yape gets a `yape.conf` of its own (`~/.config/retrodeck/yape/Gaia/yapeSDL/`,
+first copied from yours) in which every start puts the one controller on
+both joystick ports (`ActiveJoystick = 0`); a Yape started otherwise keeps
+your settings.
 
 *Joystick port* switches C64 and Plus/4 games between port 2 (most games)
 and port 1.
@@ -265,7 +274,7 @@ pictures, such as the black around Xemu's.
 | `src/common/` | text (stb_truetype), shapes and images, shared by both |
 | `third_party/stb/` | stb_truetype, stb_image, stb_image_write (public domain), pinned commit in `VERSION` |
 | `assets/fonts/` | Rajdhani and Titillium Web (SIL Open Font License, licence texts beside them), from [google/fonts](https://github.com/google/fonts) |
-| `~/.config/retrodeck/` | settings, favorites, VICE's settings (`vice/sdl-vicerc`) |
+| `~/.config/retrodeck/` | settings, favorites, VICE's settings (`vice/sdl-vicerc`), YapeSDL's (`yape/Gaia/yapeSDL/yape.conf`) |
 | `~/.cache/retrodeck/` | games unpacked from ZIPs (anew when a ZIP is replaced), `last-run.log` (the emulator's output of the last start) |
 
 For checking things without a screen:

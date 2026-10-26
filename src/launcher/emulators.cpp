@@ -12,6 +12,7 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <sstream>
 
 extern char **environ;
 
@@ -105,6 +106,57 @@ fs::path sdFolder(const fs::path &dir) {
         }
     }
     return folder;
+}
+
+// YapeSDL takes a controller's right stick (and its D-pad) as the joystick:
+// SDL's mapping of the controller in use, with the left stick's axes as the
+// right one's too, for SDL_GAMECONTROLLERCONFIG. Empty without a mapping.
+std::string yapeMapping(SDL_GameController *controller) {
+    char *mapping = SDL_GameControllerMapping(controller);
+    if (!mapping) return {};
+    std::vector<std::string> fields;
+    std::stringstream in(mapping);
+    SDL_free(mapping);
+    for (std::string field; std::getline(in, field, ',');) if (!field.empty()) fields.push_back(field);
+    auto value = [&](const std::string &key) -> std::string {
+        for (const std::string &field : fields) if (field.rfind(key + ":", 0) == 0) return field.substr(key.size() + 1);
+        return {};
+    };
+    const std::string x = value("leftx"), y = value("lefty");
+    if (fields.size() < 2 || x.empty() || y.empty()) return {};
+    std::string out;
+    for (const std::string &field : fields) {
+        if (field.rfind("rightx:", 0) == 0 || field.rfind("righty:", 0) == 0) continue;
+        out += field + ",";
+    }
+    return out + "rightx:" + x + ",righty:" + y + ",";
+}
+
+// YapeSDL's settings for RetroDeck: a yape.conf of its own (Yape keeps it
+// in SDL's pref path, $XDG_DATA_HOME/Gaia/yapeSDL), so that a Yape started
+// otherwise keeps the user's. It starts as a copy of the user's yape.conf,
+// if there is one, and is kept between runs (what Yape's menu saves stays);
+// every start puts the one controller on both joystick ports
+// (ActiveJoystick 0). Returns the folder for XDG_DATA_HOME.
+fs::path yapeDataHome() {
+    const fs::path home = configDir() / "yape";
+    const fs::path conf = home / "Gaia" / "yapeSDL" / "yape.conf";
+    std::error_code ignored;
+    fs::create_directories(conf.parent_path(), ignored);
+    const fs::path users = dataDir().parent_path() / "Gaia" / "yapeSDL" / "yape.conf";
+    std::vector<std::string> lines;
+    {
+        std::ifstream in(fs::exists(conf, ignored) ? conf : users);
+        for (std::string line; std::getline(in, line);) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line.rfind("ActiveJoystick ", 0) != 0) lines.push_back(line);
+        }
+    }
+    if (lines.empty() || lines.front() != "[Yape configuration file]") lines = {"[Yape configuration file]"};
+    std::ofstream out(conf);
+    for (const std::string &line : lines) out << line << "\n";
+    out << "ActiveJoystick = 0\n";
+    return home;
 }
 
 } // namespace
@@ -221,6 +273,14 @@ Launch planLaunch(const Game &game, const std::vector<fs::path> &media, const Se
     case System::plus4:
         launch.argv = {toolchain.yapesdl.string(), first.string()};
         launch.env.emplace_back("YAPE_FULLSCREEN", "1");
+        launch.env.emplace_back("XDG_DATA_HOME", yapeDataHome().string());
+        // The gamepad's buttons only fire, not Yape's own functions (B
+        // stepped the active joystick on, LB typed RUN, RB opened the menu)
+        launch.env.emplace_back("YAPE_PADKEYS", "off");
+        if (pad && view.index >= 0) {
+            if (const std::string mapping = yapeMapping(pad->controller); !mapping.empty())
+                launch.env.emplace_back("SDL_GAMECONTROLLERCONFIG", mapping);
+        }
         // patches/yapesdl-load-turbo.patch
         if (settings.loadTurbo) launch.env.emplace_back("YAPE_LOAD_TURBO", "1");
         break;
