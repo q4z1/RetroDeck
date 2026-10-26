@@ -72,7 +72,9 @@ again.
 
 ## Into Steam and Game Mode
 
-1. `./install-desktop-entry.sh` puts RetroDeck into the application menu.
+1. `./install-desktop-entry.sh` puts RetroDeck into the application menu,
+   under Games, with its icon (`assets/icon/retrodeck.svg`, rendered to
+   `retrodeck.png`; Steam takes it over as well).
 2. In Desktop Mode, Steam → *Add a Game* → *Add a Non-Steam Game…* → tick
    **RetroDeck**. (Or add `retrodeck.sh` by hand.)
 3. In Game Mode it is in the library under *Non-Steam*. For an external

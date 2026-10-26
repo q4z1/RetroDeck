@@ -209,6 +209,12 @@ bool App::init(int argc, char **argv) {
     SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0");
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
     if (dryRun_ || makeScreenshots_) SDL_SetHint(SDL_HINT_VIDEODRIVER, "offscreen");
+    // Named as the desktop entry (retrodeck.desktop, StartupWMClass), so the
+    // desktop shows its icon for the window: SDL 3's app id (through
+    // sdl2-compat), SDL 2's window classes
+    SDL_SetHint("SDL_APP_ID", "retrodeck");
+    SDL_SetHint("SDL_VIDEO_WAYLAND_WMCLASS", "retrodeck");
+    SDL_SetHint("SDL_VIDEO_X11_WMCLASS", "retrodeck");
     // Open on the screen chosen in the settings (it becomes SDL's first)
     if (settings_.display != "auto") setenv("SDL_VIDEO_DISPLAY_PRIORITY", settings_.display.c_str(), 1);
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_EVENTS) != 0) {
@@ -227,6 +233,10 @@ bool App::init(int argc, char **argv) {
     if (!window_) {
         std::fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());
         return false;
+    }
+    if (SDL_Surface *icon = loadSurface(root_ / "assets" / "icon" / "retrodeck.png")) {
+        SDL_SetWindowIcon(window_, icon);
+        SDL_FreeSurface(icon);
     }
     renderer_ = SDL_CreateRenderer(window_, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer_) renderer_ = SDL_CreateRenderer(window_, -1, 0);

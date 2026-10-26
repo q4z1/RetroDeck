@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <vector>
 
 namespace rd {
@@ -216,6 +217,20 @@ SDL_Texture *loadImage(SDL_Renderer *renderer, const std::filesystem::path &path
     w = area.w;
     h = area.h;
     return texture;
+}
+
+SDL_Surface *loadSurface(const std::filesystem::path &path) {
+    int w = 0, h = 0, channels = 0;
+    unsigned char *pixels = stbi_load(path.c_str(), &w, &h, &channels, 4);
+    if (!pixels) return nullptr;
+    SDL_Surface *surface = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_RGBA32);
+    if (surface) {
+        for (int y = 0; y < h; ++y)
+            std::memcpy(static_cast<unsigned char *>(surface->pixels) + static_cast<std::size_t>(y) * surface->pitch,
+                        pixels + static_cast<std::size_t>(y) * w * 4, static_cast<std::size_t>(w) * 4);
+    }
+    stbi_image_free(pixels);
+    return surface;
 }
 
 SDL_Rect fitInto(SDL_Rect bounds, int w, int h) {

@@ -21,6 +21,8 @@ void fillGradient(SDL_Renderer *renderer, SDL_Rect rect, SDL_Color top, SDL_Colo
 // Loads a PNG/JPEG into a texture; nullptr if it cannot be read. w/h get its size.
 // With `trim`, a border in one colour (an emulator's black frame) is cut off.
 SDL_Texture *loadImage(SDL_Renderer *renderer, const std::filesystem::path &path, int &w, int &h, bool trim = false);
+// Loads a PNG/JPEG into a surface (to free with SDL_FreeSurface); nullptr if it cannot be read
+SDL_Surface *loadSurface(const std::filesystem::path &path);
 
 // The largest rectangle with aspect w:h that fits into bounds, centered
 SDL_Rect fitInto(SDL_Rect bounds, int w, int h);

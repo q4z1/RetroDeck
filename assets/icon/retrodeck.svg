@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- RetroDeck's icon: a controller whose buttons are the four systems'
+       colours (as the launcher's tabs), on the launcher's background -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1d2331"/>
+      <stop offset="1" stop-color="#0c0f15"/>
+    </linearGradient>
+    <linearGradient id="pad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4f6f9"/>
+      <stop offset="1" stop-color="#bcc4d0"/>
+    </linearGradient>
+    <clipPath id="tile">
+      <rect x="8" y="8" width="240" height="240" rx="52"/>
+    </clipPath>
+  </defs>
+
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#bg)"
+        stroke="#ffffff" stroke-opacity="0.1" stroke-width="2"/>
+
+  <!-- Four stripes, one per system -->
+  <g clip-path="url(#tile)">
+    <rect x="0" y="190" width="256" height="11" fill="#f2994a"/>
+    <rect x="0" y="204" width="256" height="11" fill="#8492ff"/>
+    <rect x="0" y="218" width="256" height="11" fill="#ec5458"/>
+    <rect x="0" y="232" width="256" height="24" fill="#3dd6b5"/>
+  </g>
+
+  <!-- The controller, with a dark rim so it stands off the stripes -->
+  <path d="M64 70 H192 C222 70 238 92 240 122 L244 160 C247 186 220 198 204 180 L182 152 H74 L52 180 C36 198 9 186 12 160 L16 122 C18 92 34 70 64 70 Z"
+        fill="url(#pad)" stroke="#0c0f15" stroke-width="6" stroke-linejoin="round"/>
+
+  <!-- D-pad -->
+  <rect x="67" y="90" width="18" height="46" rx="4" fill="#232a36"/>
+  <rect x="53" y="104" width="46" height="18" rx="4" fill="#232a36"/>
+
+  <!-- Select, start -->
+  <rect x="108" y="88" width="16" height="7" rx="3.5" fill="#8c97a8"/>
+  <rect x="132" y="88" width="16" height="7" rx="3.5" fill="#8c97a8"/>
+
+  <!-- Buttons: C64, Amiga, MEGA65, Plus/4 -->
+  <circle cx="186" cy="94" r="11" fill="#8492ff"/>
+  <circle cx="208" cy="113" r="11" fill="#ec5458"/>
+  <circle cx="186" cy="132" r="11" fill="#3dd6b5"/>
+  <circle cx="164" cy="113" r="11" fill="#f2994a"/>
+</svg>
