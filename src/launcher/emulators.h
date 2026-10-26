@@ -16,8 +16,8 @@ namespace rd {
 
 struct Toolchain {
     fs::path root;
-    fs::path x64sc, xplus4, yapesdl, xmega65, amiga;
-    fs::path mega65Rom, kickstart;
+    fs::path x64sc, xplus4, yapesdl, plus4emu, xmega65, amiga;
+    fs::path plus4emuRoms, mega65Rom, kickstart;
 
     // The Kickstart is looked for in `amigaFolders` (the library's)
     static Toolchain locate(const fs::path &root, const fs::path &launcherDir, const std::vector<fs::path> &amigaFolders);

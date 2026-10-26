@@ -43,6 +43,20 @@ using namespace rd;
 
 namespace {
 
+// The Plus/4's emulators, in the order X and the settings step through them
+std::string nextPlus4Emulator(const std::string &current, int step) {
+    static const std::array<const char *, 3> order{"vice", "yape", "plus4emu"};
+    int index = 0;
+    for (int i = 0; i < 3; ++i) if (current == order[static_cast<std::size_t>(i)]) index = i;
+    return order[static_cast<std::size_t>((index + step + 3) % 3)];
+}
+
+std::string plus4EmulatorLabel(const std::string &emulator) {
+    if (emulator == "yape") return "YapeSDL";
+    if (emulator == "plus4emu") return "plus4emu";
+    return "VICE";
+}
+
 // Colours
 constexpr SDL_Color bgTop{12, 15, 21, 255}, bgBottom{22, 27, 36, 255};
 constexpr SDL_Color panel{27, 33, 43, 255}, panelHigh{38, 46, 60, 255}, panelLow{20, 25, 33, 255};
@@ -525,7 +539,7 @@ void App::handleLibrary(Action action) {
         break;
     case Action::option:
         if (system() == System::plus4) {
-            settings_.plus4Emulator = settings_.plus4Emulator == "yape" ? "vice" : "yape";
+            settings_.plus4Emulator = nextPlus4Emulator(settings_.plus4Emulator, 1);
             settings_.save(settingsFile_);
             say("Plus/4 startet mit " + toolchain_.emulatorName(System::plus4, settings_));
         }
@@ -570,7 +584,7 @@ void App::handleSettings(Action action) {
         break;
     }
     case rowPort: settings_.joyPort = settings_.joyPort == 2 ? 1 : 2; break;
-    case rowPlus4: settings_.plus4Emulator = settings_.plus4Emulator == "yape" ? "vice" : "yape"; break;
+    case rowPlus4: settings_.plus4Emulator = nextPlus4Emulator(settings_.plus4Emulator, step); break;
     case rowAmiga: settings_.amigaModel = settings_.amigaModel == "A500_OCS_1MB" ? "A500_ECS_1MB" : "A500_OCS_1MB"; break;
     case rowTurbo: settings_.loadTurbo = !settings_.loadTurbo; break;
     case rowFavorites: settings_.favoritesFirst = !settings_.favoritesFirst; sortLists(); break;
@@ -1053,7 +1067,7 @@ void App::drawFooter() {
     int x = S(40);
     x += hint(x, cy, "A", buttonA, "Starten");
     x += hint(x, cy, "Y", buttonY, "Favorit");
-    if (system() == System::plus4) x += hint(x, cy, "X", buttonX, settings_.plus4Emulator == "yape" ? "YapeSDL" : "VICE");
+    if (system() == System::plus4) x += hint(x, cy, "X", buttonX, plus4EmulatorLabel(settings_.plus4Emulator));
     x += hint(x, cy, "Menu", muted, "Einstellungen", false);
     hint(x, cy, "B", buttonB, "Beenden");
     // In-game: how to get back
@@ -1082,7 +1096,7 @@ void App::drawSettings() {
         {"Controller", padText()},
         {"Bildschirm", displayText()},
         {"Joystick-Port (C64, Plus/4)", "Port " + std::to_string(settings_.joyPort)},
-        {"Plus/4-Emulator", settings_.plus4Emulator == "yape" ? "YapeSDL" : "VICE (xplus4)"},
+        {"Plus/4-Emulator", settings_.plus4Emulator == "vice" ? "VICE (xplus4)" : plus4EmulatorLabel(settings_.plus4Emulator)},
         {"Amiga-Modell", settings_.amigaModel == "A500_ECS_1MB" ? "A500 · ECS · 1 MB Chip" : "A500 · OCS · 512K + 512K"},
         {"Turbo beim Laden", settings_.loadTurbo ? "Ja" : "Nein"},
         {"Favoriten zuerst", settings_.favoritesFirst ? "Ja" : "Nein"},

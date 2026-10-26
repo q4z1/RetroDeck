@@ -1,0 +1,35 @@
+diff --git a/gui/main.cpp b/gui/main.cpp
+index f2f6a51..de183d2 100644
+--- a/gui/main.cpp
++++ b/gui/main.cpp
+@@ -225,6 +225,10 @@ int main(int argc, char **argv)
+           f = new Plus4Emu::File(cfgFileName, true);
+         }
+         catch (Plus4Emu::Exception& e) {
++          // With PLUS4EMU_HOME the caller sets it up: no p4makecfg (it
++          // opens a window and waits), the defaults instead
++          if (std::getenv("PLUS4EMU_HOME") != (char *) 0)
++            throw;
+           std::string cmdLine = "\"";
+           cmdLine += argv[0];
+           size_t  i = cmdLine.length();
+diff --git a/src/system.cpp b/src/system.cpp
+index 09ff2ab..5f4b769 100644
+--- a/src/system.cpp
++++ b/src/system.cpp
+@@ -428,6 +428,15 @@ namespace Plus4Emu {
+ 
+     dirName = "";
+ #ifndef WIN32
++    // PLUS4EMU_HOME: a folder of its own instead of ~/.plus4emu
++    if (std::getenv("PLUS4EMU_HOME") != (char*) 0 &&
++        std::getenv("PLUS4EMU_HOME")[0] != '\0') {
++      dirName = std::getenv("PLUS4EMU_HOME");
++      while (dirName.size() > 1 && dirName[dirName.size() - 1] == '/')
++        dirName.resize(dirName.size() - 1);
++      mkdir(dirName.c_str(), 0750);
++      return dirName;
++    }
+     if (std::getenv("HOME") != (char*) 0)
+       dirName = std::getenv("HOME");
+     if ((int) dirName.size() == 0)

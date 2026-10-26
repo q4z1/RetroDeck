@@ -1,0 +1,38 @@
+diff --git a/gui/gui.cpp b/gui/gui.cpp
+index 879dab0..a9d43f3 100644
+--- a/gui/gui.cpp
++++ b/gui/gui.cpp
+@@ -321,6 +321,33 @@ void Plus4EmuGUI::updateDisplay(double t)
+     if (vmThreadStatus.threadStatus < 0)
+       errorFlag = true;
+   }
++  // PLUS4EMU_LOAD_TURBO: no speed limit (and no sound) while a floppy
++  // drive's LED is lit, back to the speed set half a second after it went
++  // out; speed changed in between from the menu is left alone
++  {
++    static const bool loadTurbo = (std::getenv("PLUS4EMU_LOAD_TURBO") != 0);
++    static bool turbo = false;
++    static unsigned int speedBefore = 100U;
++    static Plus4Emu::Timer ledOffTime;
++    if (loadTurbo) {
++      if (vmThreadStatus.floppyDriveLEDState != 0U) {
++        ledOffTime.reset();
++        if (!turbo && config.vm.speedPercentage != 0U) {
++          turbo = true;
++          speedBefore = config.vm.speedPercentage;
++          config["vm.speedPercentage"] = 0U;
++          applyEmulatorConfiguration();
++        }
++      }
++      else if (turbo && ledOffTime.getRealTime() >= 0.5) {
++        turbo = false;
++        if (config.vm.speedPercentage == 0U) {
++          config["vm.speedPercentage"] = speedBefore;
++          applyEmulatorConfiguration();
++        }
++      }
++    }
++  }
+   if (displayMode != oldDisplayMode) {
+     updateDisplay_windowMode();
+   }

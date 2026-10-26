@@ -17,7 +17,7 @@ nothing is installed on the system.
 
 | System | Emulator | From |
 | --- | --- | --- |
-| Plus/4 | VICE 3.10 `xplus4` (or YapeSDL, X in the list switches) | `toolchain/vice/`, `toolchain/bin/yapesdl` |
+| Plus/4 | VICE 3.10 `xplus4` (or YapeSDL or plus4emu, X in the list switches) | `toolchain/vice/`, `toolchain/bin/yapesdl`, `toolchain/bin/plus4emu` |
 | C64 | VICE 3.10 `x64sc` | `toolchain/vice/` |
 | Amiga | `retrodeck-amiga`: RetroDeck's own front end on the vAmiga core, A500 with your Kickstart 1.3 | `build/bin/`, core in `toolchain/src/vAmiga`, Kickstart in the Amiga games folder |
 | MEGA65 | Xemu `xmega65` (our fork) with the MEGA65 ROM 920413 | `toolchain/bin/xmega65` |
@@ -36,7 +36,8 @@ only what changed is rebuilt.
 
 `toolchain/setup.sh` first checks the build tools the system needs (gcc,
 cmake, make, pkg-config, git, curl, flex, bison, python, bsdtar, SDL2,
-zlib) and, if some are missing, names them with the `pacman` line that
+zlib, and for plus4emu PortAudio, libsndfile, SDL 1.2 (sdl12-compat) and
+GLU) and, if some are missing, names them with the `pacman` line that
 installs them; it installs nothing itself. Then it takes everything from
 the net, at pinned versions:
 
@@ -45,6 +46,8 @@ the net, at pinned versions:
 | VICE 3.10 | release tarball from SourceForge, SDL2 user interface, installed into `toolchain/vice/`, with `toolchain/patches/vice-drive-warp.patch` (`-drivewarp`: warp while a drive motor runs) |
 | xa 2.4.1, dos2unix | only for building VICE; xa from floodgap.com, dos2unix a stand-in script; both stay in `toolchain/src/shims/` |
 | YapeSDL | [q4z1/yapesdl](https://github.com/q4z1/yapesdl), branch `feature/start-fullscreen` (`YAPE_FULLSCREEN=1` opens it fullscreen), with `toolchain/patches/yapesdl-gamepad.patch` (all SDL events each frame, so the stick does not lag; `YAPE_PADKEYS=off`: the gamepad's buttons only fire; from the branch `fix/sdl-gamepad-event-queue`) and `toolchain/patches/yapesdl-load-turbo.patch` (`YAPE_LOAD_TURBO=1`: warp while a drive works) |
+| plus4emu | [istvan-v/plus4emu](https://github.com/istvan-v/plus4emu) at its last commit (2020), with `toolchain/patches/plus4emu-*.patch`: `scons4` (its SConstruct with SCons 4), `home` (`PLUS4EMU_HOME`: a folder of its own instead of `~/.plus4emu`, and no `p4makecfg` window on the first start), `fullscreen` (`PLUS4EMU_FULLSCREEN`: full screen without the menu bar), `load-turbo` (`PLUS4EMU_LOAD_TURBO`: no speed limit while a drive's LED is lit); built without Lua (it wants 5.1 to 5.3, only for its debugger's scripts); its ROMs and keyboard map go to `toolchain/rom/plus4emu/` |
+| FLTK 1.3.9, SCons 4.8.1 | only for building plus4emu, in `toolchain/src/` (the system's FLTK is 1.4): from fltk.org and SourceForge |
 | Xemu | [q4z1/xemu](https://github.com/q4z1/xemu), branch `audio-sync`, with the changes in `toolchain/patches/` applied to the clone: its window opens centered (see [Screens](#screens)), and `-hdosvirt`'s readfile maps the SD-card buffer at `$DE00` as Hyppo does (see [MEGA65 games with data files](#mega65-games-with-data-files)) |
 | vAmiga core | [dirkwhoffmann/vAmiga](https://github.com/dirkwhoffmann/vAmiga), the same commit as `amiga-run` in [q4z1/MEGA65](https://github.com/q4z1/MEGA65) |
 | `MEGA65.ROM` | built as mega65go does on Windows: the C65 ROM 910828 out of Cloanto's C64 Forever installer, patched with 920413.bdf from files.mega65.org, both checked by SHA-1; with cabextract 1.11 (cabextract.org.uk, built here), olefile 0.47 (GitHub) and the two scripts in `toolchain/tools/` (`msi-extract-cabs.py`, `bspatch.py`, part of this repository, taken over from [q4z1/MEGA65](https://github.com/q4z1/MEGA65)) |
@@ -112,7 +115,9 @@ once in a C64 or Plus/4 game.
 
 Disks load faster: the setting **Turbo beim Laden** (on by default) runs
 the machine in warp while a drive works – VICE and YapeSDL while a drive's
-motor runs or the 1551 is talked to, the Amiga while its drive motor runs –
+motor runs or the 1551 is talked to, plus4emu while a drive's LED is lit
+(Paradroid from a D64: 86 s of loading in 10 s), the Amiga while its drive
+motor runs –
 and back at normal speed half a second after it stopped. Music a game plays
 while it loads is muted then (or too fast); switch the setting off for
 such a game. VICE also warps through the autostart (its own
@@ -146,6 +151,15 @@ Yape gets a `yape.conf` of its own (`~/.config/retrodeck/yape/Gaia/yapeSDL/`,
 first copied from yours) in which every start puts the one controller on
 both joystick ports (`ActiveJoystick = 0`); a Yape started otherwise keeps
 your settings.
+
+plus4emu reads the controller's raw axes, buttons and hats like VICE; the
+launcher writes them from SDL's mapping into the keyboard map it hands
+plus4emu on every start (`~/.config/retrodeck/plus4emu/retrodeck.cfg`, on
+top of plus4emu's `p4_keys.cfg`): left stick and D-pad are the joystick in
+the chosen port, A and B fire. That file also names the ROMs (a PAL
+Plus/4 with 64 KB, as plus4emu's `P4_64k_PAL.cfg`). plus4emu keeps the rest
+of its settings in `~/.config/retrodeck/plus4emu` (`PLUS4EMU_HOME`), not
+in your `~/.plus4emu`.
 
 *Joystick port* switches C64 and Plus/4 games between port 2 (most games)
 and port 1.
@@ -274,7 +288,7 @@ pictures, such as the black around Xemu's.
 | `src/common/` | text (stb_truetype), shapes and images, shared by both |
 | `third_party/stb/` | stb_truetype, stb_image, stb_image_write (public domain), pinned commit in `VERSION` |
 | `assets/fonts/` | Rajdhani and Titillium Web (SIL Open Font License, licence texts beside them), from [google/fonts](https://github.com/google/fonts) |
-| `~/.config/retrodeck/` | settings, favorites, VICE's settings (`vice/sdl-vicerc`), YapeSDL's (`yape/Gaia/yapeSDL/yape.conf`) |
+| `~/.config/retrodeck/` | settings, favorites, VICE's settings (`vice/sdl-vicerc`), YapeSDL's (`yape/Gaia/yapeSDL/yape.conf`), plus4emu's (`plus4emu/`) |
 | `~/.cache/retrodeck/` | games unpacked from ZIPs (anew when a ZIP is replaced), `last-run.log` (the emulator's output of the last start) |
 
 For checking things without a screen:

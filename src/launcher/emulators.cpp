@@ -159,6 +159,76 @@ fs::path yapeDataHome() {
     return home;
 }
 
+// plus4emu's settings for a game, on top of the keyboard map from its
+// p4_keys.cfg: a PAL Plus/4 with 64 KB, its ROMs and the drives' (as
+// p4makecfg's P4_64k_PAL.cfg), and the controller in use as the joystick in
+// `port`. plus4emu reads joysticks through SDL as key codes - axis n
+// 0xC000 + 2n (to the negative side) and + 1 (positive), button b
+// 0xC010 + b, hat h 0xC020 + 4h + 0/1/2/3 (right, up, left, down) - which
+// keyboard.RR.0 and .1 put on row RR of the Plus/4's keyboard matrix, where
+// the joystick lines are too. The other port's joystick codes are cleared:
+// p4_keys.cfg puts axes 2 and 3 there, an Xbox controller's left trigger
+// (which rests at one end) and right stick.
+void writePlus4emuConfig(const fs::path &file, const fs::path &roms, SDL_GameController *controller, int port) {
+    std::ofstream out(file);
+    out << "# plus4emu settings, written by RetroDeck on every start\n";
+    out << "display.ntscMode\tNo\nmemory.ram.size\t64\n";
+    auto rom = [&](const char *slot, const char *name, int offset) {
+        out << "memory.rom." << slot << ".file\t\"" << (*name ? (roms / name).string() : "") << "\"\n";
+        out << "memory.rom." << slot << ".offset\t" << offset << "\n";
+    };
+    rom("00", "p4_basic.rom", 0);
+    rom("01", "p4kernal.rom", 0);
+    for (const char *slot : {"02", "03", "04", "05", "06", "07"}) rom(slot, "", 0);
+    rom("0A", "mps801.rom", 0);
+    rom("0C", "1526_07c.rom", 0);
+    rom("10", "dos1541.rom", 0);
+    rom("20", "dos1551.rom", 0);
+    rom("30", "dos1581.rom", 0);
+    rom("31", "dos1581.rom", 16384);
+    out << "vm.cpuClockFrequency\t1\nvm.videoClockFrequency\t17734475\n";
+    out << "vm.enableACIA\tYes\nvm.serialBusDelayOffset\t0\n";
+    out << "joystick.enableJoystick\tYes\n";
+    if (!controller) return;
+
+    // Rows of up, down, left, right, fire in the matrix
+    const int rows2[5] = {0x48, 0x49, 0x4A, 0x4B, 0x4F}, rows1[5] = {0x50, 0x51, 0x52, 0x53, 0x56};
+    const int *mine = port == 1 ? rows1 : rows2, *other = port == 1 ? rows2 : rows1;
+    auto key = [&](int row, int slot, int code) {
+        out << "keyboard." << std::hex << std::uppercase << row << '.' << slot << "\t";
+        if (code < 0) out << "-1";
+        else out << "0x" << code;
+        out << std::dec << "\n";
+    };
+    auto buttonCode = [&](SDL_GameControllerButton button) {
+        const SDL_GameControllerButtonBind bind = SDL_GameControllerGetBindForButton(controller, button);
+        if (bind.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON && bind.value.button < 16) return 0xC010 + bind.value.button;
+        if (bind.bindType == SDL_CONTROLLER_BINDTYPE_HAT && bind.value.hat.hat < 2) {
+            const int mask = bind.value.hat.hat_mask;
+            const int side = mask & SDL_HAT_RIGHT ? 0 : mask & SDL_HAT_UP ? 1 : mask & SDL_HAT_LEFT ? 2 : 3;
+            return 0xC020 + 4 * bind.value.hat.hat + side;
+        }
+        return -1;
+    };
+    auto axisCode = [&](SDL_GameControllerAxis axis, bool positive) {
+        const SDL_GameControllerButtonBind bind = SDL_GameControllerGetBindForAxis(controller, axis);
+        if (bind.bindType != SDL_CONTROLLER_BINDTYPE_AXIS || bind.value.axis >= 8) return -1;
+        return 0xC000 + 2 * bind.value.axis + (positive ? 1 : 0);
+    };
+    // Left stick in the first place, the D-pad in the second; A and B fire
+    key(mine[0], 0, axisCode(SDL_CONTROLLER_AXIS_LEFTY, false));
+    key(mine[0], 1, buttonCode(SDL_CONTROLLER_BUTTON_DPAD_UP));
+    key(mine[1], 0, axisCode(SDL_CONTROLLER_AXIS_LEFTY, true));
+    key(mine[1], 1, buttonCode(SDL_CONTROLLER_BUTTON_DPAD_DOWN));
+    key(mine[2], 0, axisCode(SDL_CONTROLLER_AXIS_LEFTX, false));
+    key(mine[2], 1, buttonCode(SDL_CONTROLLER_BUTTON_DPAD_LEFT));
+    key(mine[3], 0, axisCode(SDL_CONTROLLER_AXIS_LEFTX, true));
+    key(mine[3], 1, buttonCode(SDL_CONTROLLER_BUTTON_DPAD_RIGHT));
+    key(mine[4], 0, buttonCode(SDL_CONTROLLER_BUTTON_A));
+    key(mine[4], 1, buttonCode(SDL_CONTROLLER_BUTTON_B));
+    for (int i = 0; i < 5; ++i) key(other[i], 1, -1);
+}
+
 } // namespace
 
 Toolchain Toolchain::locate(const fs::path &root, const fs::path &launcherDir, const std::vector<fs::path> &amigaFolders) {
@@ -168,6 +238,8 @@ Toolchain Toolchain::locate(const fs::path &root, const fs::path &launcherDir, c
     t.x64sc = tc / "vice" / "bin" / "x64sc";
     t.xplus4 = tc / "vice" / "bin" / "xplus4";
     t.yapesdl = tc / "bin" / "yapesdl";
+    t.plus4emu = tc / "bin" / "plus4emu";
+    t.plus4emuRoms = tc / "rom" / "plus4emu";
     t.xmega65 = tc / "bin" / "xmega65";
     t.amiga = launcherDir / "retrodeck-amiga";
     t.mega65Rom = tc / "rom" / "MEGA65.ROM";
@@ -192,6 +264,9 @@ std::string Toolchain::missing(System system, const Settings &settings) const {
     case System::plus4:
         if (settings.plus4Emulator == "yape")
             return executable(yapesdl) ? "" : "YapeSDL fehlt – toolchain/setup.sh yapesdl";
+        if (settings.plus4Emulator == "plus4emu")
+            return executable(plus4emu) && fs::exists(plus4emuRoms / "p4_keys.cfg") ? ""
+                                                                                  : "plus4emu fehlt – toolchain/setup.sh plus4emu";
         return executable(xplus4) ? "" : "VICE fehlt – toolchain/setup.sh vice";
     case System::c64:
         return executable(x64sc) ? "" : "VICE fehlt – toolchain/setup.sh vice";
@@ -207,7 +282,10 @@ std::string Toolchain::missing(System system, const Settings &settings) const {
 
 std::string Toolchain::emulatorName(System system, const Settings &settings) const {
     switch (system) {
-    case System::plus4: return settings.plus4Emulator == "yape" ? "YapeSDL" : "VICE · xplus4";
+    case System::plus4:
+        if (settings.plus4Emulator == "yape") return "YapeSDL";
+        if (settings.plus4Emulator == "plus4emu") return "plus4emu";
+        return "VICE · xplus4";
     case System::c64: return "VICE · x64sc";
     case System::amiga: return settings.amigaModel == "A500_ECS_1MB" ? "vAmiga · A500 ECS" : "vAmiga · A500 OCS";
     case System::mega65: return "Xemu · xmega65";
@@ -231,7 +309,8 @@ Launch planLaunch(const Game &game, const std::vector<fs::path> &media, const Se
     const fs::path first = media.front();
     const std::string extension = lower(first.extension().string());
 
-    if (game.system == System::c64 || (game.system == System::plus4 && settings.plus4Emulator != "yape")) {
+    if (game.system == System::c64 || (game.system == System::plus4 && settings.plus4Emulator != "yape" &&
+                                         settings.plus4Emulator != "plus4emu")) {
         const bool c64 = game.system == System::c64;
         const fs::path dir = configDir() / "vice";
         std::error_code ignored;
@@ -271,6 +350,19 @@ Launch planLaunch(const Game &game, const std::vector<fs::path> &media, const Se
 
     switch (game.system) {
     case System::plus4:
+        if (settings.plus4Emulator == "plus4emu") {
+            // Its own folder instead of ~/.plus4emu (patches/plus4emu-home.patch)
+            const fs::path home = configDir() / "plus4emu", cfg = home / "retrodeck.cfg";
+            std::error_code ignored;
+            fs::create_directories(home, ignored);
+            writePlus4emuConfig(cfg, toolchain.plus4emuRoms, pad && view.index >= 0 ? pad->controller : nullptr, settings.joyPort);
+            launch.argv = {toolchain.plus4emu.string(), "-cfg", (toolchain.plus4emuRoms / "p4_keys.cfg").string(),
+                           "-cfg", cfg.string(), first.string()};
+            launch.env.emplace_back("PLUS4EMU_HOME", home.string());
+            launch.env.emplace_back("PLUS4EMU_FULLSCREEN", "1");
+            if (settings.loadTurbo) launch.env.emplace_back("PLUS4EMU_LOAD_TURBO", "1");
+            break;
+        }
         launch.argv = {toolchain.yapesdl.string(), first.string()};
         launch.env.emplace_back("YAPE_FULLSCREEN", "1");
         launch.env.emplace_back("XDG_DATA_HOME", yapeDataHome().string());

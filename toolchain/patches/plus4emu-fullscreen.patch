@@ -1,0 +1,14 @@
+diff --git a/gui/gui.cpp b/gui/gui.cpp
+index 879dab0..a9d43f3 100644
+--- a/gui/gui.cpp
++++ b/gui/gui.cpp
+@@ -824,6 +851,9 @@ void Plus4EmuGUI::run()
+   }
+   catch (...) {
+   }
++  // PLUS4EMU_FULLSCREEN: start in full screen, without the menu bar
++  if (std::getenv("PLUS4EMU_FULLSCREEN") != (char *) 0)
++    displayMode = 3;
+   vmThread.lock(0x7FFFFFFF);
+   vmThread.setUserData((void *) this);
+   vmThread.setErrorCallback(&errorMessageCallback);

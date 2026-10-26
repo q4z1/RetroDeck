@@ -7,6 +7,9 @@
 #   vice/        VICE 3.10 (x64sc, xplus4), SDL2 user interface,  SourceForge
 #                + patches/vice-*.patch
 #   bin/yapesdl  YapeSDL (Plus/4) + patches/yapesdl-*.patch      github.com/q4z1/yapesdl
+#   bin/plus4emu plus4emu (Plus/4) + patches/plus4emu-*.patch    github.com/istvan-v/plus4emu
+#                with its ROMs in rom/plus4emu/; FLTK 1.3 and SCons
+#                for it built in src/ only                      fltk.org, SourceForge
 #   bin/xmega65  Xemu (MEGA65) + patches/xemu-*.patch            github.com/q4z1/xemu
 #   src/vAmiga   the vAmiga core for the Amiga front end         github.com/dirkwhoffmann/vAmiga
 #   rom/         MEGA65.ROM, built from the C65 ROM in Cloanto's C64 Forever
@@ -19,7 +22,7 @@
 # Run from anywhere, also from VS Code's Flatpak terminal:
 #
 #   toolchain/setup.sh            all components
-#   toolchain/setup.sh vice rom   only these (vice yapesdl xemu vamiga rom)
+#   toolchain/setup.sh vice rom   only these (vice yapesdl plus4emu xemu vamiga rom)
 
 set -e
 
@@ -39,6 +42,10 @@ VICE_VERSION=3.10
 XA_VERSION=2.4.1
 YAPE_REPO=https://github.com/q4z1/yapesdl.git
 YAPE_COMMIT=7153de9e001d6ba57fd9d0d2b0d43b92773b53ca   # feature/start-fullscreen
+P4EMU_REPO=https://github.com/istvan-v/plus4emu.git
+P4EMU_COMMIT=939e65233b227a47e5523eca149de8247176e28f
+FLTK_VERSION=1.3.9
+SCONS_VERSION=4.8.1
 XEMU_REPO=https://github.com/q4z1/xemu.git
 XEMU_COMMIT=658b7f43fa78f44d0947f2731bd968cf270b51f6   # audio-sync
 VAMIGA_REPO=https://github.com/dirkwhoffmann/vAmiga.git
@@ -76,6 +83,11 @@ need bsdtar libarchive
 need sdl2-config sdl2-compat
 pkg-config --exists sdl2 2>/dev/null || missing="$missing sdl2-compat"
 pkg-config --exists zlib 2>/dev/null || missing="$missing zlib"
+# plus4emu: sound, sound files, joysticks (SDL 1.2), OpenGL display
+pkg-config --exists portaudio-2.0 2>/dev/null || missing="$missing portaudio"
+pkg-config --exists sndfile 2>/dev/null || missing="$missing libsndfile"
+pkg-config --exists sdl 2>/dev/null || missing="$missing sdl12-compat"
+pkg-config --exists glu 2>/dev/null || missing="$missing glu"
 if [ -n "$missing" ]; then
     packages=$(printf '%s\n' $missing | sort -u | tr '\n' ' ')
     echo "Missing on this system: $packages" >&2
@@ -189,6 +201,51 @@ if want yapesdl; then
             echo "$s" >"$HERE/bin/yapesdl.stamp"
         else
             unavailable YapeSDL "$YAPE_COMMIT" "$YAPE_REPO" "$HERE/bin/yapesdl"
+        fi
+    fi
+fi
+
+if want plus4emu; then
+    # FLTK 1.3 (the system's is 1.4, newer than plus4emu) and SCons, its
+    # build tool, are built here as well, only for this build. Without Lua:
+    # plus4emu wants 5.1 to 5.3, and only for its debugger's scripts.
+    s=$(stamp "$P4EMU_COMMIT" "$HERE"/patches/plus4emu-*.patch)
+    if ! up_to_date "$HERE/bin/plus4emu" "$s"; then
+        step "plus4emu"
+        if [ ! -x "$SRC/fltk/bin/fltk-config" ]; then
+            fltktar="$DL/fltk-$FLTK_VERSION-source.tar.gz"
+            download "https://www.fltk.org/pub/fltk/$FLTK_VERSION/fltk-$FLTK_VERSION-source.tar.gz" "$fltktar"
+            rm -rf "$SRC/fltk-$FLTK_VERSION"
+            tar -xzf "$fltktar" -C "$SRC"
+            (cd "$SRC/fltk-$FLTK_VERSION" &&
+                ./configure --prefix="$SRC/fltk" --enable-gl --enable-localjpeg \
+                    --enable-localzlib --enable-localpng &&
+                make -j"$JOBS" && make install) >"$SRC/fltk-build.log" 2>&1 ||
+                { tail -30 "$SRC/fltk-build.log"; exit 1; }
+        fi
+        if [ ! -f "$SRC/scons-local/scons.py" ]; then
+            sconstar="$DL/scons-local-$SCONS_VERSION.tar.gz"
+            download "https://downloads.sourceforge.net/project/scons/scons-local/$SCONS_VERSION/scons-local-$SCONS_VERSION.tar.gz" "$sconstar"
+            rm -rf "$SRC/scons-local"
+            mkdir -p "$SRC/scons-local"
+            tar -xzf "$sconstar" -C "$SRC/scons-local"
+        fi
+        if checkout "$P4EMU_REPO" "$P4EMU_COMMIT" "$SRC/plus4emu"; then
+            for patch in "$HERE"/patches/plus4emu-*.patch; do
+                [ -f "$patch" ] && git -C "$SRC/plus4emu" apply "$patch"
+            done
+            (cd "$SRC/plus4emu" &&
+                PATH="$SRC/fltk/bin:$PATH" python3 "$SRC/scons-local/scons.py" -j"$JOBS" nolua=1) \
+                >"$SRC/plus4emu-build.log" 2>&1 || { tail -40 "$SRC/plus4emu-build.log"; exit 1; }
+            cp "$SRC/plus4emu/plus4emu" "$HERE/bin/plus4emu"
+            rm -rf "$HERE/rom/plus4emu"
+            mkdir -p "$HERE/rom/plus4emu"
+            cp "$SRC/plus4emu"/roms/*.rom "$HERE/rom/plus4emu/"
+            # Its keyboard map (the launcher adds the joystick to it)
+            cp "$SRC/plus4emu/config/p4_keys.cfg" "$HERE/rom/plus4emu/"
+            echo "$s" >"$HERE/bin/plus4emu.stamp"
+        else
+            unavailable plus4emu "$P4EMU_COMMIT" "$P4EMU_REPO" "$HERE/bin/plus4emu"
         fi
     fi
 fi
