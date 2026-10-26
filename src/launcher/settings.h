@@ -14,6 +14,7 @@ struct Settings {
     std::string plus4Emulator = "vice";  // "vice" or "yape"
     std::string amigaModel = "A500_OCS_1MB";
     int joyPort = 2;                     // C64 and Plus/4: the port the joystick is in
+    bool loadTurbo = true;               // warp while a disk drive runs (all but Xemu)
     bool favoritesFirst = true;
     std::set<std::string> favorites;     // Game::key
     std::string lastGame;

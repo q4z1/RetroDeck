@@ -4,8 +4,9 @@
 # versions. What is there and up to date is skipped; a component is built
 # anew when its pinned commit or one of its patches changes.
 #
-#   vice/        VICE 3.10 (x64sc, xplus4), SDL2 user interface   SourceForge
-#   bin/yapesdl  YapeSDL (Plus/4)                                github.com/q4z1/yapesdl
+#   vice/        VICE 3.10 (x64sc, xplus4), SDL2 user interface,  SourceForge
+#                + patches/vice-*.patch
+#   bin/yapesdl  YapeSDL (Plus/4) + patches/yapesdl-*.patch      github.com/q4z1/yapesdl
 #   bin/xmega65  Xemu (MEGA65) + patches/xemu-*.patch            github.com/q4z1/xemu
 #   src/vAmiga   the vAmiga core for the Amiga front end         github.com/dirkwhoffmann/vAmiga
 #   rom/         MEGA65.ROM, built from the C65 ROM in Cloanto's C64 Forever
@@ -122,7 +123,12 @@ unavailable() { # NAME COMMIT REPO BINARY
     fail "$1 commit $2 is not on $3 (not pushed yet, or offline)"
 }
 
-if want vice && [ ! -x "$HERE/vice/bin/x64sc" ]; then
+# Changes for RetroDeck, in this copy only (patches/):
+#   vice-drive-warp  -drivewarp (DriveWarpOnActivity): warp while a drive
+#                    motor runs, so that games load fast also after the
+#                    autostart (multi-load, a loader after the intro)
+vice_stamp=$(stamp "$VICE_VERSION" "$HERE"/patches/vice-*.patch)
+if want vice && ! up_to_date "$HERE/vice/bin/x64sc" "$vice_stamp"; then
     step "VICE $VICE_VERSION"
     tarball="$DL/vice-$VICE_VERSION.tar.gz"
     download "https://downloads.sourceforge.net/project/vice-emu/releases/vice-$VICE_VERSION.tar.gz" "$tarball"
@@ -150,19 +156,29 @@ EOS
     rm -rf "$SRC/vice-$VICE_VERSION"
     tar -xzf "$tarball" -C "$SRC"
     cd "$SRC/vice-$VICE_VERSION"
+    for patch in "$HERE"/patches/vice-*.patch; do
+        git apply "$patch"
+    done
     ./configure --prefix="$HERE/vice" --enable-sdl2ui --without-oss \
         --disable-html-docs --disable-pdf-docs >"$SRC/vice-configure.log" 2>&1 ||
         { tail -30 "$SRC/vice-configure.log"; exit 1; }
     make -j"$JOBS" >"$SRC/vice-build.log" 2>&1 || { tail -40 "$SRC/vice-build.log"; exit 1; }
     make install >"$SRC/vice-install.log" 2>&1 || { tail -20 "$SRC/vice-install.log"; exit 1; }
+    echo "$vice_stamp" >"$HERE/vice/bin/x64sc.stamp"
     cd "$HERE"
 fi
 
 if want yapesdl; then
-    s=$(stamp "$YAPE_COMMIT")
+    # Changes for RetroDeck, in this copy only (patches/):
+    #   yapesdl-load-turbo  YAPE_LOAD_TURBO=1: as fast as it goes while a
+    #                       drive works (a true drive's motor, or the 1551)
+    s=$(stamp "$YAPE_COMMIT" "$HERE"/patches/yapesdl-*.patch)
     if ! up_to_date "$HERE/bin/yapesdl" "$s"; then
         step "YapeSDL"
         if checkout "$YAPE_REPO" "$YAPE_COMMIT" "$SRC/yapesdl"; then
+            for patch in "$HERE"/patches/yapesdl-*.patch; do
+                git -C "$SRC/yapesdl" apply "$patch"
+            done
             make -C "$SRC/yapesdl" -j"$JOBS" yape >"$SRC/yapesdl-build.log" 2>&1 ||
                 { tail -30 "$SRC/yapesdl-build.log"; exit 1; }
             cp "$SRC/yapesdl/yapesdl" "$HERE/bin/yapesdl"

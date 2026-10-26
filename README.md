@@ -42,9 +42,9 @@ the net, at pinned versions:
 
 | Piece | Source |
 | --- | --- |
-| VICE 3.10 | release tarball from SourceForge, SDL2 user interface, installed into `toolchain/vice/` |
+| VICE 3.10 | release tarball from SourceForge, SDL2 user interface, installed into `toolchain/vice/`, with `toolchain/patches/vice-drive-warp.patch` (`-drivewarp`: warp while a drive motor runs) |
 | xa 2.4.1, dos2unix | only for building VICE; xa from floodgap.com, dos2unix a stand-in script; both stay in `toolchain/src/shims/` |
-| YapeSDL | [q4z1/yapesdl](https://github.com/q4z1/yapesdl), branch `feature/start-fullscreen` (`YAPE_FULLSCREEN=1` opens it fullscreen) |
+| YapeSDL | [q4z1/yapesdl](https://github.com/q4z1/yapesdl), branch `feature/start-fullscreen` (`YAPE_FULLSCREEN=1` opens it fullscreen), with `toolchain/patches/yapesdl-load-turbo.patch` (`YAPE_LOAD_TURBO=1`: warp while a drive works) |
 | Xemu | [q4z1/xemu](https://github.com/q4z1/xemu), branch `audio-sync`, with the changes in `toolchain/patches/` applied to the clone: its window opens centered (see [Screens](#screens)), and `-hdosvirt`'s readfile maps the SD-card buffer at `$DE00` as Hyppo does (see [MEGA65 games with data files](#mega65-games-with-data-files)) |
 | vAmiga core | [dirkwhoffmann/vAmiga](https://github.com/dirkwhoffmann/vAmiga), the same commit as `amiga-run` in [q4z1/MEGA65](https://github.com/q4z1/MEGA65) |
 | `MEGA65.ROM` | built as mega65go does on Windows: the C65 ROM 910828 out of Cloanto's C64 Forever installer, patched with 920413.bdf from files.mega65.org, both checked by SHA-1; with cabextract 1.11 (cabextract.org.uk, built here), olefile 0.47 (GitHub) and the two scripts in `toolchain/tools/` (`msi-extract-cabs.py`, `bspatch.py`, part of this repository, taken over from [q4z1/MEGA65](https://github.com/q4z1/MEGA65)) |
@@ -54,8 +54,8 @@ on): your own copy goes into the Amiga folder of the games (see
 [The games folder](#the-games-folder)), where the launcher finds it by
 "kick" in its name.
 
-YapeSDL and Xemu are built anew when their pinned commit or a patch
-changes (`toolchain/bin/*.stamp`). If a pinned commit cannot be fetched (not
+VICE, YapeSDL and Xemu are built anew when their version, pinned commit
+or a patch changes (a `.stamp` beside the program). If a pinned commit cannot be fetched (not
 pushed yet, or offline), the build that is there is kept with a warning.
 `toolchain/setup.sh vice` (or `yapesdl`, `xemu`, `vamiga`, `rom`) does one
 piece only. VICE finds its ROMs through the path it was built for, so
@@ -110,9 +110,16 @@ once in a C64 or Plus/4 game.
 | View + LB / RB | – | previous / next disk in DF0 | – |
 | View + Y | – | turbo on/off | – |
 
-The Amiga runs at normal speed also while its drive loads: vAmiga's
-automatic warp would mute the music many games play while loading.
-View + Y switches warp on and off by hand. Its keyboard is the PC keyboard (also Steam's on-screen
+Disks load faster: the setting **Turbo beim Laden** (on by default) runs
+the machine in warp while a drive works – VICE and YapeSDL while a drive's
+motor runs or the 1551 is talked to, the Amiga while its drive motor runs –
+and back at normal speed half a second after it stopped. Music a game plays
+while it loads is muted then (or too fast); switch the setting off for
+such a game. VICE also warps through the autostart (its own
+`AutostartWarp`), and the Amiga's drive always reads eight times as fast
+as a real one, which leaves the sound alone (Flashback: 31 s to its first
+screen instead of 46 s). Xemu stays as it is. On the Amiga, View + Y
+switches warp on and off by hand. Its keyboard is the PC keyboard (also Steam's on-screen
 keyboard, Steam + X); F11 switches fullscreen, F12 quits.
 
 ## Controllers

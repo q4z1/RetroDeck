@@ -1,0 +1,86 @@
+diff --git a/main.cpp b/main.cpp
+index 281ac51..c8363b7 100644
+--- a/main.cpp
++++ b/main.cpp
+@@ -1356,16 +1356,51 @@ static void app_initialise()
+ }
+ 
+ /* ---------- MAIN LOOP ---------- */
++// With YAPE_LOAD_TURBO set: as fast as it goes while a drive works (a true
++// drive's motor runs, or the 1551 is talked to), without sound and showing
++// every eighth frame; back to normal half a second after it stopped.
++static bool loadTurbo()
++{
++	static const bool enabled = getenv("YAPE_LOAD_TURBO") != NULL;
++	static unsigned int lastAccesses = 0, framesStill = 0;
++	static bool on = false;
++
++	if (!enabled)
++		return false;
++	bool busy = CFakeTCBM::Accesses != lastAccesses;
++	lastAccesses = CFakeTCBM::Accesses;
++	for (unsigned int i = 0; i < 4; i++) {
++		CTrueDrive *d = CTrueDrive::Drives[i];
++		if (d && d->GetFdc() && d->GetFdc()->getMotorState())
++			busy = true;
++	}
++	if (busy) {
++		framesStill = 0;
++		if (!on) {
++			on = true;
++			if (g_50Hz)
++				sound_pause();
++		}
++	} else if (on && ++framesStill >= 25) {
++		on = false;
++		if (g_50Hz)
++			sound_resume();
++	}
++	return on;
++}
++
+ static void mainLoop()
+ {
+ 	// hook into the emulation loop if active
+ 	if (g_bActive) {
++		static unsigned int turboFrames = 0;
+ 		ted8360->ted_process(1);
+ 		poll_events();
+ 		if (g_inDebug)
+ 			DebugInfo();
+ 		ShowFrameRate(g_FrameRate);
+-		if (ad_vsync(!!g_50Hz))
++		const bool turbo = loadTurbo();
++		if (ad_vsync(!!g_50Hz && !turbo) && (!turbo || !(++turboFrames & 7)))
+ 			frameUpdate();
+ 	} else {
+ #ifndef __EMSCRIPTEN__ // does not work in Emscripten
+diff --git a/tcbm.cpp b/tcbm.cpp
+index ac06f4f..4306c1c 100644
+--- a/tcbm.cpp
++++ b/tcbm.cpp
+@@ -41,8 +41,11 @@ unsigned char CFakeTCBM::Read(unsigned int addr)
+ 	}
+ }
+ 
++unsigned int CFakeTCBM::Accesses = 0;
++
+ void CFakeTCBM::Write( unsigned int addr, unsigned char data)
+ {
++	++Accesses;
+ 	unsigned int drive = (addr & 0x0030) >> 5;
+ 	//printf("W%i:%02X\n", addr & 7, data);
+ 	switch (addr & 7) {
+diff --git a/tcbm.h b/tcbm.h
+index 23145dc..4f8e7dd 100644
+--- a/tcbm.h
++++ b/tcbm.h
+@@ -39,6 +39,8 @@ class CFakeTCBM : public CTCBM {
+ 	unsigned int State;
+ 	class CIECInterface *iec;
+   public:
++	// Bumped on every register write: the drive is busy while it changes
++	static unsigned int Accesses;
+ 	void AddIECInterface(CIECInterface *pIEC) { iec = pIEC; };
+ 	virtual void Write(unsigned int addr, Uint8 data);
+ 	virtual Uint8 Read(unsigned int);

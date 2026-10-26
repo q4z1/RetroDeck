@@ -31,6 +31,7 @@ void Settings::load(const std::filesystem::path &file) {
         else if (key == "plus4-emulator") plus4Emulator = value;
         else if (key == "amiga-model") amigaModel = value;
         else if (key == "joy-port") joyPort = value == "1" ? 1 : 2;
+        else if (key == "load-turbo") loadTurbo = value != "no";
         else if (key == "favorites-first") favoritesFirst = value != "no";
         else if (key == "favorite") favorites.insert(value);
         else if (key == "last-game") lastGame = value;
@@ -50,6 +51,7 @@ void Settings::save(const std::filesystem::path &file) const {
         out << "plus4-emulator = " << plus4Emulator << "\n";
         out << "amiga-model = " << amigaModel << "\n";
         out << "joy-port = " << joyPort << "\n";
+        out << "load-turbo = " << (loadTurbo ? "yes" : "no") << "\n";
         out << "favorites-first = " << (favoritesFirst ? "yes" : "no") << "\n";
         out << "last-system = " << lastSystem << "\n";
         out << "last-game = " << lastGame << "\n";

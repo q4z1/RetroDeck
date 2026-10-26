@@ -535,7 +535,7 @@ void App::handleLibrary(Action action) {
 }
 
 // The rows of the settings screen
-enum SettingsRow { rowPad, rowDisplay, rowPort, rowPlus4, rowAmiga, rowFavorites, rowRescan, rowQuit, rowCount };
+enum SettingsRow { rowPad, rowDisplay, rowPort, rowPlus4, rowAmiga, rowTurbo, rowFavorites, rowRescan, rowQuit, rowCount };
 
 void App::handleSettings(Action action) {
     const int step = action == Action::left ? -1 : action == Action::right || action == Action::accept ? 1 : 0;
@@ -572,6 +572,7 @@ void App::handleSettings(Action action) {
     case rowPort: settings_.joyPort = settings_.joyPort == 2 ? 1 : 2; break;
     case rowPlus4: settings_.plus4Emulator = settings_.plus4Emulator == "yape" ? "vice" : "yape"; break;
     case rowAmiga: settings_.amigaModel = settings_.amigaModel == "A500_OCS_1MB" ? "A500_ECS_1MB" : "A500_OCS_1MB"; break;
+    case rowTurbo: settings_.loadTurbo = !settings_.loadTurbo; break;
     case rowFavorites: settings_.favoritesFirst = !settings_.favoritesFirst; sortLists(); break;
     case rowRescan:
         if (action != Action::accept) return;
@@ -1062,7 +1063,7 @@ void App::drawFooter() {
 
 void App::drawSettings() {
     fillRect(renderer_, {0, 0, width_, height_}, SDL_Color{0, 0, 0, 160});
-    const int w = std::min(width_ - S(80), S(820)), h = std::min(height_ - S(60), S(690));
+    const int w = std::min(width_ - S(80), S(820)), h = std::min(height_ - S(60), S(740));
     const SDL_Rect box{(width_ - w) / 2, (height_ - h) / 2, w, h};
     fillRounded(renderer_, box, S(20), panel);
     outlineRounded(renderer_, box, S(20), std::max(1, S(2)), withAlpha(accent(system()), 90));
@@ -1083,6 +1084,7 @@ void App::drawSettings() {
         {"Joystick-Port (C64, Plus/4)", "Port " + std::to_string(settings_.joyPort)},
         {"Plus/4-Emulator", settings_.plus4Emulator == "yape" ? "YapeSDL" : "VICE (xplus4)"},
         {"Amiga-Modell", settings_.amigaModel == "A500_ECS_1MB" ? "A500 · ECS · 1 MB Chip" : "A500 · OCS · 512K + 512K"},
+        {"Turbo beim Laden", settings_.loadTurbo ? "Ja" : "Nein"},
         {"Favoriten zuerst", settings_.favoritesFirst ? "Ja" : "Nein"},
         {"Bibliothek neu einlesen", ""},
         {"RetroDeck beenden", ""},

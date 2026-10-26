@@ -208,6 +208,10 @@ Launch planLaunch(const Game &game, const std::vector<fs::path> &media, const Se
         const std::string port = settings.joyPort == 1 ? "-joydev1" : "-joydev2";
         const std::string other = settings.joyPort == 1 ? "-joydev2" : "-joydev1";
         launch.argv.insert(launch.argv.end(), {port, device, other, "0"});
+        // Warp while it loads: autostart, and whenever a drive motor runs
+        // (patches/vice-drive-warp.patch)
+        if (settings.loadTurbo) launch.argv.insert(launch.argv.end(), {"-autostart-warp", "-drivewarp"});
+        else launch.argv.insert(launch.argv.end(), {"+autostart-warp", "+drivewarp"});
         if (c64 && extension == ".crt") launch.argv.insert(launch.argv.end(), {"-cartcrt", first.string()});
         else launch.argv.insert(launch.argv.end(), {"-autostart", first.string()});
         return launch;
@@ -217,6 +221,8 @@ Launch planLaunch(const Game &game, const std::vector<fs::path> &media, const Se
     case System::plus4:
         launch.argv = {toolchain.yapesdl.string(), first.string()};
         launch.env.emplace_back("YAPE_FULLSCREEN", "1");
+        // patches/yapesdl-load-turbo.patch
+        if (settings.loadTurbo) launch.env.emplace_back("YAPE_LOAD_TURBO", "1");
         break;
     case System::mega65:
         launch.argv = {toolchain.xmega65.string(), "-rom", toolchain.mega65Rom.string(), "-fullscreen", "-besure"};
@@ -231,6 +237,7 @@ Launch planLaunch(const Game &game, const std::vector<fs::path> &media, const Se
     case System::amiga:
         launch.argv = {toolchain.amiga.string(), "--kickstart", toolchain.kickstart.string(), "--model", settings.amigaModel};
         if (pad && view.index >= 0) launch.argv.insert(launch.argv.end(), {"--pad", std::to_string(view.index)});
+        if (settings.loadTurbo) launch.argv.push_back("--load-turbo");
         for (const fs::path &disk : media) launch.argv.push_back(disk.string());
         break;
     default:

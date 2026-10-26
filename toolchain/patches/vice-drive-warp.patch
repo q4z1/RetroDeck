@@ -1,0 +1,120 @@
+--- a/src/drive/drive.c
++++ b/src/drive/drive.c
+@@ -73,6 +73,7 @@
+ #include "uiapi.h"
+ #include "ds1216e.h"
+ #include "drive-sound.h"
++#include "drive-resources.h"
+ #include "p64.h"
+ #include "monitor.h"
+ #include "monitor_network.h"
+@@ -1021,12 +1022,49 @@
+     }
+ }
+ 
++/* Warp while a drive motor runs (DriveWarpOnActivity), and back to normal
++   speed half a second after the last one stopped; only warp switched on
++   here is switched off here. */
++static void drive_warp_update(void)
++{
++    static int warp_by_drive = 0;
++    static unsigned int frames_still = 0;
++    int spinning = 0;
++    unsigned int dnr;
++
++    if (drive_warp_on_activity) {
++        for (dnr = 0; dnr < NUM_DISK_UNITS; dnr++) {
++            diskunit_context_t *unit = diskunit_context[dnr];
++
++            if (unit->enable
++                && ((unit->drives[0]->byte_ready_active & BRA_MOTOR_ON)
++                    || (drive_check_dual(unit->type)
++                        && (unit->drives[1]->byte_ready_active & BRA_MOTOR_ON)))) {
++                spinning = 1;
++            }
++        }
++    }
++    if (spinning) {
++        frames_still = 0;
++        if (!vsync_get_warp_mode()) {
++            vsync_set_warp_mode(1);
++            warp_by_drive = 1;
++        }
++    } else if (warp_by_drive && ++frames_still >= 25) {
++        if (vsync_get_warp_mode()) {
++            vsync_set_warp_mode(0);
++        }
++        warp_by_drive = 0;
++    }
++}
++
+ /* This is called at every vsync. */
+ void drive_vsync_hook(void)
+ {
+     unsigned int dnr;
+ 
+     drive_update_ui_status();
++    drive_warp_update();
+ 
+     for (dnr = 0; dnr < NUM_DISK_UNITS; dnr++) {
+         diskunit_context_t *unit = diskunit_context[dnr];
+--- a/src/drive/drive-resources.c
++++ b/src/drive/drive-resources.c
+@@ -62,6 +62,9 @@
+ /* volume of the drive sound */
+ int drive_sound_emulation_volume;
+ 
++/* Warp while a drive motor runs? */
++int drive_warp_on_activity;
++
+ static int set_drive_true_emulation(int val, void *param)
+ {
+     unsigned int dnr;
+@@ -115,6 +118,13 @@
+     return 0;
+ }
+ 
++static int set_drive_warp_on_activity(int val, void *param)
++{
++    drive_warp_on_activity = val ? 1 : 0;
++
++    return 0;
++}
++
+ static int set_drive_sound_emulation_volume(int val, void *param)
+ {
+     if ((val < 0) || (val > DRIVE_SOUND_VOLUME_MAX)) {
+@@ -384,6 +394,8 @@
+       &drive_sound_emulation, set_drive_sound_emulation, NULL },
+     { "DriveSoundEmulationVolume", 1000, RES_EVENT_NO, (resource_value_t)1000,
+       &drive_sound_emulation_volume, set_drive_sound_emulation_volume, NULL },
++    { "DriveWarpOnActivity", 0, RES_EVENT_NO, (resource_value_t)0,
++      &drive_warp_on_activity, set_drive_warp_on_activity, NULL },
+     RESOURCE_INT_LIST_END
+ };
+ 
+--- a/src/drive/drive-resources.h
++++ b/src/drive/drive-resources.h
+@@ -29,6 +29,7 @@
+ 
+ extern int drive_sound_emulation;
+ extern int drive_sound_emulation_volume;
++extern int drive_warp_on_activity;
+ 
+ int drive_resources_init(void);
+ void drive_resources_shutdown(void);
+--- a/src/drive/drive-cmdline-options.c
++++ b/src/drive/drive-cmdline-options.c
+@@ -55,6 +55,12 @@
+     { "-drivesoundvolume", SET_RESOURCE, CMDLINE_ATTRIB_NEED_ARGS,
+       NULL, NULL, "DriveSoundEmulationVolume", NULL,
+       "<Volume>", "Set volume for disk drive sound emulation (0-4000)" },
++    { "-drivewarp", SET_RESOURCE, CMDLINE_ATTRIB_NONE,
++      NULL, NULL, "DriveWarpOnActivity", (void *)1,
++      NULL, "Enable warp mode while a disk drive motor runs" },
++    { "+drivewarp", SET_RESOURCE, CMDLINE_ATTRIB_NONE,
++      NULL, NULL, "DriveWarpOnActivity", (void *)0,
++      NULL, "Disable warp mode while a disk drive motor runs" },
+     CMDLINE_LIST_END
+ };
+ 

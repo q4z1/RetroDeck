@@ -2,10 +2,12 @@
 // core, for playing with a controller.
 //
 //   retrodeck-amiga --kickstart KICK.rom [--model A500_OCS_1MB|A500_ECS_1MB]
-//                   [--pad N] [--window WxH] [--frames N --screenshot F.png]
-//                   DISK1.adf [DISK2.adf ...]
+//                   [--pad N] [--load-turbo] [--window WxH]
+//                   [--frames N --screenshot F.png] DISK1.adf [DISK2.adf ...]
 //
 // --pad N plays with SDL game controller N only (default: all of them).
+// --load-turbo warps while a drive motor runs (the sound is muted then).
+// The drive always reads eight times as fast as a real one.
 //
 // Controller                           Keyboard
 //   left stick, D-pad  joystick port 2   Amiga keys as on a PC keyboard
@@ -57,6 +59,7 @@ struct Options {
     std::string model = "A500_OCS_1MB";
     int pad = -1;
     int windowW = 0, windowH = 0;
+    bool loadTurbo = false;
     long frames = 0;
     std::string screenshot;
     std::vector<fs::path> disks;
@@ -143,6 +146,7 @@ private:
     bool ours(SDL_JoystickID id) const;
     static void audioCallback(void *user, Uint8 *stream, int length);
     static void message(const void *, Message, std::exception_ptr) {}
+    Warp baseWarp() const { return options_.loadTurbo ? Warp::AUTO : Warp::NEVER; }
 
     Options options_;
     VAmiga amiga_;
@@ -223,9 +227,13 @@ bool Frontend::setup() {
         amiga_.set(options_.model == "A500_ECS_1MB" ? ConfigScheme::A500_ECS_1MB : ConfigScheme::A500_OCS_1MB);
         amiga_.set(Opt::HOST_TEX_FORMAT, static_cast<i64>(TexFormat::ABGR));
         if (audio_) amiga_.set(Opt::HOST_SAMPLE_RATE, have.freq);
-        // No automatic warp while the drive runs: it mutes the sound, and
-        // many games play music while they load (View + Y switches it on)
-        amiga_.set(Opt::AMIGA_WARP_MODE, static_cast<i64>(Warp::NEVER));
+        // Disk DMA eight words a slot: loads faster, the sound unchanged
+        // (Flashback: 31 s to the protection screen instead of 46 s; the
+        // turbo drive, -1, hangs it)
+        amiga_.set(Opt::DC_SPEED, 8);
+        // Warp while the drive runs only with --load-turbo: it mutes the
+        // sound, and many games play music while they load
+        amiga_.set(Opt::AMIGA_WARP_MODE, static_cast<i64>(baseWarp()));
         amiga_.mem.loadRom(options_.kickstart);
         if (!options_.disks.empty()) amiga_.df0.insert(options_.disks.front(), false);
         amiga_.launch(this, message);
@@ -302,7 +310,7 @@ void Frontend::controllerButton(Uint8 button, bool down) {
         case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: insertDisk(disk_ + 1); return;
         case SDL_CONTROLLER_BUTTON_Y:
             warp_ = !warp_;
-            amiga_.set(Opt::AMIGA_WARP_MODE, static_cast<i64>(warp_ ? Warp::ALWAYS : Warp::NEVER));
+            amiga_.set(Opt::AMIGA_WARP_MODE, static_cast<i64>(warp_ ? Warp::ALWAYS : baseWarp()));
             say(warp_ ? "Turbo an" : "Turbo aus");
             return;
         case SDL_CONTROLLER_BUTTON_START: return; // the quit combination
@@ -503,13 +511,14 @@ int main(int argc, char **argv) {
         if (arg == "--kickstart") options.kickstart = next();
         else if (arg == "--model") options.model = next();
         else if (arg == "--pad") options.pad = std::atoi(next().c_str());
+        else if (arg == "--load-turbo") options.loadTurbo = true;
         else if (arg == "--window") std::sscanf(next().c_str(), "%dx%d", &options.windowW, &options.windowH);
         else if (arg == "--frames") options.frames = std::atol(next().c_str());
         else if (arg == "--screenshot") options.screenshot = next();
         else options.disks.emplace_back(arg);
     }
     if (options.kickstart.empty()) {
-        std::fprintf(stderr, "usage: retrodeck-amiga --kickstart KICK.rom [--model M] [--pad N] [--window WxH] DISK...\n");
+        std::fprintf(stderr, "usage: retrodeck-amiga --kickstart KICK.rom [--model M] [--pad N] [--load-turbo] [--window WxH] DISK...\n");
         return 1;
     }
     std::signal(SIGTERM, onSignal);
