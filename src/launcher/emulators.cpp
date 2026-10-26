@@ -189,6 +189,8 @@ void writePlus4emuConfig(const fs::path &file, const fs::path &roms, SDL_GameCon
     out << "vm.cpuClockFrequency\t1\nvm.videoClockFrequency\t17734475\n";
     out << "vm.enableACIA\tYes\nvm.serialBusDelayOffset\t0\n";
     out << "joystick.enableJoystick\tYes\n";
+    // Sound on (the device is PortAudio's default: PLUS4EMU_DEFAULT_AUDIO)
+    out << "sound.enabled\tYes\nsound.device\t0\n";
     if (!controller) return;
 
     // Rows of up, down, left, right, fire in the matrix
@@ -360,6 +362,9 @@ Launch planLaunch(const Game &game, const std::vector<fs::path> &media, const Se
                            "-cfg", cfg.string(), first.string()};
             launch.env.emplace_back("PLUS4EMU_HOME", home.string());
             launch.env.emplace_back("PLUS4EMU_FULLSCREEN", "1");
+            // PortAudio's default output (PipeWire), not the first device of
+            // its list, a raw HDMI one (patches/plus4emu-default-audio.patch)
+            launch.env.emplace_back("PLUS4EMU_DEFAULT_AUDIO", "1");
             if (settings.loadTurbo) launch.env.emplace_back("PLUS4EMU_LOAD_TURBO", "1");
             break;
         }

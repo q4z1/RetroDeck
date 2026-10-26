@@ -1,0 +1,41 @@
+diff --git a/src/sndio_pa.cpp b/src/sndio_pa.cpp
+index 2216f87..f535d6b 100644
+--- a/src/sndio_pa.cpp
++++ b/src/sndio_pa.cpp
+@@ -311,6 +311,20 @@ namespace Plus4Emu {
+       throw Exception("no audio device is available");
+     int     devIndex;
+     int     devNum = deviceNumber;
++    bool    devFound = false;
++#ifndef USING_OLD_PORTAUDIO_API
++    // PLUS4EMU_DEFAULT_AUDIO: PortAudio's default output (on Linux ALSA's
++    // "default", which goes through PipeWire or PulseAudio) instead of the
++    // device numbered - the first of the list is a raw hw: one, which the
++    // sound server holds, and stays silent
++    if (std::getenv("PLUS4EMU_DEFAULT_AUDIO") != (char *) 0) {
++      devNum = int(Pa_GetDefaultOutputDevice());
++      if (devNum < 0)
++        throw Exception("no default audio device is available");
++      devFound = true;
++    }
++    else
++#endif
+     for (devIndex = 0; devIndex < devCnt; devIndex++) {
+       const PaDeviceInfo  *devInfo;
+ #ifndef USING_OLD_PORTAUDIO_API
+@@ -323,12 +337,14 @@ namespace Plus4Emu {
+       if (devInfo->maxOutputChannels >= 2) {
+         if (--devNum == -1) {
+           devNum = devIndex;
++          devFound = true;
+           break;
+         }
+       }
+     }
+-    if (devIndex >= devCnt)
++    if (!devFound)
+       throw Exception("device number is out of range");
++    devIndex = devNum;
+     usingBlockingInterface = false;
+     int     nPeriodsHW_ = nPeriodsHW;
+ #ifndef USING_OLD_PORTAUDIO_API
