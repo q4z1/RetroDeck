@@ -1,0 +1,45 @@
+diff --git a/targets/mega65/hdos.c b/targets/mega65/hdos.c
+index 6eedee98..bcb0b43e 100644
+--- a/targets/mega65/hdos.c
++++ b/targets/mega65/hdos.c
+@@ -625,6 +625,9 @@ static void hdos_virt_readfile ( void )
+ 		hdos.virt_out_a = HDOSERR_READ_ERROR;
+ 		return;
+ 	}
++	// Hyppo's readfile leaves the SD-card buffer mapped at $DE00, where programs read the data from;
++	// without that they would see the F011 buffer instead (e.g. with a D81 mounted)
++	sdcard_map_sd_buffer();
+ 	hdos.virt_out_x =  read_size       & 0xFF;
+ 	hdos.virt_out_y = (read_size >> 8) & 0xFF;
+ 	hdos.virt_out_carry = 1;	// signal OK status
+diff --git a/targets/mega65/sdcard.c b/targets/mega65/sdcard.c
+index 10b87f9b..1fd3960c 100644
+--- a/targets/mega65/sdcard.c
++++ b/targets/mega65/sdcard.c
+@@ -302,6 +302,14 @@ static XEMU_INLINE void set_disk_buffer_cpu_view ( void )
+ }
+ 
+ 
++// Maps the SD-card sector buffer at $DE00 ($D689.7 = 1), as Hyppo does when it reads a file
++void sdcard_map_sd_buffer ( void )
++{
++	sd_regs[9] |= 0x80;
++	set_disk_buffer_cpu_view();
++}
++
++
+ static void card_init_done ( void )
+ {
+ 	DEBUGPRINT("SDCARD: card init done, size=%u Mbytes (%s), virtsd_mode=%s, default_D81_from_sd=%d" NL,
+diff --git a/targets/mega65/sdcard.h b/targets/mega65/sdcard.h
+index 24d6730e..82579268 100644
+--- a/targets/mega65/sdcard.h
++++ b/targets/mega65/sdcard.h
+@@ -48,6 +48,7 @@ extern const char *sdcard_get_external_mount_name ( const int unit );
+ 
+ extern void   sdcard_notify_hyppo_enter ( const int _is_hyppo_reset );
+ extern void   sdcard_notify_hyppo_leave ( void );
++extern void   sdcard_map_sd_buffer  ( void );
+ 
+ // disk buffer for SD (can be mapped to I/O space too), F011, and some "3.5K scratch space"
+ extern Uint8  disk_buffers[0x1000];

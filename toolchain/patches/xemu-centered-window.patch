@@ -1,0 +1,12 @@
+diff --git a/xemu/emutools.c b/xemu/emutools.c
+index 9456ee95..59bca933 100644
+--- a/xemu/emutools.c
++++ b/xemu/emutools.c
+@@ -1393,6 +1393,7 @@ int xemu_post_init (
+ 		sdl_default_win_y_pos = SDL_WINDOWPOS_UNDEFINED;
+ 	}
+ 	DEBUGPRINT("SDL: opening window at (%d,%d) with size of (%d,%d)" NL, sdl_default_win_x_pos, sdl_default_win_y_pos, win_x_size, win_y_size);
++	sdl_default_win_x_pos = sdl_default_win_y_pos = SDL_WINDOWPOS_CENTERED;	/* RetroDeck */
+ 	sdl_window_title = xemu_strdup(window_title);
+ 	sdl_win = SDL_CreateWindow(
+ 		window_title,

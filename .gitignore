@@ -1,0 +1,12 @@
+/build/
+
+# Built or downloaded by toolchain/setup.sh
+/toolchain/vice/
+/toolchain/bin/
+/toolchain/src/
+/toolchain/downloads/
+# ROMs may not be redistributed
+/toolchain/rom/
+
+# clangd
+/.cache/
