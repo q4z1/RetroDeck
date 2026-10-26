@@ -1,0 +1,87 @@
+--- a/main.cpp
++++ b/main.cpp
+@@ -42,6 +42,9 @@
+ #include "vicmem.h"
+ #include "SaveState.h"
+ #include "keyoverlay.h"
++// From RetroDeck's third_party/stb (toolchain/setup.sh copies it here)
++#define STB_IMAGE_WRITE_IMPLEMENTATION
++#include "stb_image_write.h"
+ 
+ #ifdef __EMSCRIPTEN__
+ #include <emscripten.h>
+@@ -471,6 +474,43 @@
+ #endif
+ }
+ 
++// RETRODECK_SCREENSHOT: the picture shown is saved there as a PNG for Print
++// or Shift+F12, and when RetroDeck asks for it (SIGUSR2: its controller's
++// View + X): the frame just emulated, before the frame rate or a message
++// is drawn into it
++static volatile sig_atomic_t retrodeckScreenshot = 0;
++
++static void retrodeckOnScreenshot(int)
++{
++	retrodeckScreenshot = 1;
++}
++
++static void retrodeckSaveScreenshot()
++{
++	static unsigned char rgb[SCREENX * SCREENY * 3];
++	const char *path = getenv("RETRODECK_SCREENSHOT");
++	const unsigned int *palette = palette_get_rgb();
++	const unsigned int pitch = ted8360->getCyclesPerRow();
++	const int offsetX = pitch == VIC_PIXELS_PER_ROW ? -72 : 8;
++	const int offsetY = pitch == VIC_PIXELS_PER_ROW ? 9 : 0;
++	const unsigned char *src = ted8360->getScreenData() + (pitch - 384 - offsetX) / 2 + offsetY * pitch;
++
++	retrodeckScreenshot = 0;
++	if (!path || !*path)
++		return;
++	for (unsigned int y = 0; y < SCREENY; y++) {
++		for (unsigned int x = 0; x < SCREENX; x++) {
++			const unsigned int c = palette[src[y * pitch + x]];
++			unsigned char *p = rgb + (y * SCREENX + x) * 3;
++			p[0] = (unsigned char) (c >> 16);
++			p[1] = (unsigned char) (c >> 8);
++			p[2] = (unsigned char) c;
++		}
++	}
++	if (stbi_write_png(path, SCREENX, SCREENY, 3, rgb, SCREENX * 3))
++		PopupMsg(" SCREENSHOT ");
++}
++
+ static void frameUpdate()
+ {
+ 	const unsigned int cyclesPerRow = ted8360->getCyclesPerRow();
+@@ -983,6 +1023,12 @@
+ 
+ //				printf("Keysim: %x, scancode: %x - %s key was pressed!\n",
+ //				event.key.keysym.sym, event.key.keysym.scancode, SDL_GetKeyName(event.key.keysym.sym));
++				if ((event.key.keysym.sym == SDLK_PRINTSCREEN ||
++					(event.key.keysym.sym == SDLK_F12 && (event.key.keysym.mod & KMOD_SHIFT)))
++					&& getenv("RETRODECK_SCREENSHOT")) {
++					retrodeckScreenshot = 1;
++					break;
++				}
+ 				if (event.key.keysym.mod & KMOD_LALT) {
+ 					sound_pause();
+ 						switch (event.key.keysym.sym) {
+@@ -1312,6 +1358,8 @@
+ 
+ 	SDL_GetVersion(&sdlv);
+ 	printf("SDL version detected: %d.%d.%d\n", sdlv.major, sdlv.minor, sdlv.patch);
++	if (getenv("RETRODECK_SCREENSHOT"))
++		signal(SIGUSR2, retrodeckOnScreenshot);
+ #ifdef __EMSCRIPTEN__
+ 	// very important for performance reasons
+ 	SDL_SetHint(SDL_HINT_EMSCRIPTEN_ASYNCIFY, "0");
+@@ -1409,6 +1457,8 @@
+ 		static unsigned int turboFrames = 0;
+ 		ted8360->ted_process(1);
+ 		poll_events();
++		if (retrodeckScreenshot)
++			retrodeckSaveScreenshot();
+ 		if (g_inDebug)
+ 			DebugInfo();
+ 		ShowFrameRate(g_FrameRate);

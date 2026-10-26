@@ -1,0 +1,95 @@
+--- a/src/arch/sdl/kbd.c
++++ b/src/arch/sdl/kbd.c
+@@ -49,12 +49,14 @@
+ #include "machine.h"
+ #include "monitor.h"
+ #include "resources.h"
++#include "screenshot.h"
+ #include "sysfile.h"
+ #include "ui.h"
+ #include "uihotkey.h"
+ #include "uihotkeys.h"
+ #include "uimenu.h"
+ #include "util.h"
++#include "videoarch.h"
+ #include "vkbd.h"
+ 
+ /* #define SDL_DEBUG */
+@@ -235,6 +237,35 @@
+     return kill((pid_t)atoi(pid), SIGUSR1) == 0;
+ }
+ 
++/* RETRODECK_SCREENSHOT: the picture shown is saved there for Print or
++   Shift+F12, and when RetroDeck asks for it (SIGUSR2: its controller's
++   View + X), between two frames (sdlkbd_retrodeck_poll) */
++static volatile sig_atomic_t retrodeck_screenshot_asked = 0;
++
++static void retrodeck_on_screenshot(int sig)
++{
++    retrodeck_screenshot_asked = 1;
++}
++
++static int retrodeck_screenshot(void)
++{
++    const char *path = getenv("RETRODECK_SCREENSHOT");
++
++    if (path == NULL || path[0] == 0) {
++        return 0;
++    }
++    screenshot_save("PNG", path, sdl_active_canvas);
++    return 1;
++}
++
++void sdlkbd_retrodeck_poll(void)
++{
++    if (retrodeck_screenshot_asked) {
++        retrodeck_screenshot_asked = 0;
++        retrodeck_screenshot();
++    }
++}
++
+ void sdlkbd_press(SDLKey key, SDLMod mod)
+ {
+ #if 0
+@@ -262,6 +293,10 @@
+         }
+     }
+ #endif
++    if ((SDL1x_to_SDL2x_Keys(key) == SDLK_PRINTSCREEN ||
++         (SDL1x_to_SDL2x_Keys(key) == SDLK_F12 && (mod & KMOD_SHIFT))) && retrodeck_screenshot()) {
++        return;
++    }
+     if (SDL1x_to_SDL2x_Keys(key) == SDLK_F12 && retrodeck_ask()) {
+         return;
+     }
+@@ -358,6 +393,10 @@
+      * (not sure it should be here, but seems early enough) */
+     ui_hotkeys_init("sdl");
+ 
++    if (getenv("RETRODECK_SCREENSHOT") != NULL) {
++        signal(SIGUSR2, retrodeck_on_screenshot);
++    }
++
+ #if 0
+     sdlkbd_keyword_clear();
+ #endif
+--- a/src/arch/sdl/kbd.h
++++ b/src/arch/sdl/kbd.h
+@@ -77,6 +77,7 @@
+ SDLKey SDL1x_to_SDL2x_Keys(SDLKey key);
+ 
+ void sdlkbd_press(SDLKey key, SDLMod mod);
++void sdlkbd_retrodeck_poll(void);
+ void sdlkbd_release(SDLKey key, SDLMod mod);
+ ui_menu_action_t sdlkbd_press_for_menu_action(SDLKey key, SDLMod mod);
+ ui_menu_action_t sdlkbd_release_for_menu_action(SDLKey key, SDLMod mod);
+--- a/src/arch/sdl/ui.c
++++ b/src/arch/sdl/ui.c
+@@ -259,6 +259,7 @@
+     SDL_Event e;
+     int joynum;
+ 
++    sdlkbd_retrodeck_poll();
+     while (SDL_PollEvent(&e)) {
+         joystick_device_t *joydev = NULL;
+         joystick_button_t *button = NULL;

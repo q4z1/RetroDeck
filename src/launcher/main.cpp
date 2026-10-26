@@ -135,6 +135,10 @@ private:
     Process process_;
     bool running_ = false, stopRequested_ = false;
     std::string runningTitle_;
+    // The running game's screenshot (RETRODECK_SCREENSHOT) and when it was
+    // written before the game started, to see whether one was taken in it
+    fs::path shot_;
+    fs::file_time_type shotBefore_{};
     Uint32 comboSince_ = 0;
     // The quit prompt over a running game, opened by View pressed alone
     bool prompt_ = false, viewDown_ = false, viewAlone_ = false;
@@ -816,6 +820,9 @@ void App::launch() {
     askToEnd = false;
     stopRequested_ = false;
     runningTitle_ = game->title;
+    shot_ = screenshotPath(*game);
+    std::error_code ignored;
+    shotBefore_ = fs::last_write_time(shot_, ignored);
     settings_.lastGame = game->key;
     settings_.lastSystem = system_;
     settings_.save(settingsFile_);
@@ -857,6 +864,17 @@ void App::finished() {
     SDL_ShowWindow(window_);
     SDL_RaiseWindow(window_);
     stickX_ = stickY_ = 0;
+    // A screenshot taken in the game is its picture in the list now
+    std::error_code error;
+    const bool shot = fs::last_write_time(shot_, error) != shotBefore_ && !error;
+    if (shot) {
+        for (Game &game : library_.games) if (game.key == settings_.lastGame) game.artwork = shot_;
+        if (auto art = art_.find(shot_.string()); art != art_.end()) {
+            if (art->second.texture) SDL_DestroyTexture(art->second.texture);
+            art_.erase(art);
+        }
+        say("Screenshot gespeichert");
+    }
     const int code = process_.exitCode();
     if (code != 0 && !stopRequested_) {
         say("Emulator mit Code " + std::to_string(code) + " beendet – Log: ~/.cache/retrodeck/last-run.log", true);
@@ -883,10 +901,11 @@ void App::watchCombo(Uint32 now) {
 
 // View pressed and let go again on its own (no other button meanwhile,
 // not held long) asks whether to end the game; while asking, View again
-// goes back to it
+// goes back to it. View + X asks the emulator for a screenshot.
 void App::watchView(Uint8 button, bool down) {
     if (button != SDL_CONTROLLER_BUTTON_BACK) {
         if (down) viewAlone_ = false;
+        if (down && viewDown_ && button == SDL_CONTROLLER_BUTTON_X && !prompt_) process_.screenshot();
         return;
     }
     if (down) {
@@ -1289,8 +1308,10 @@ void App::drawFooter() {
     if (current()) x += hint(x, cy, ctlOption, "Optionen");
     x += hint(x, cy, ctlMenu, "Einstellungen");
     hint(x, cy, ctlBack, "Beenden");
-    // In-game: how to get back (F12 in all emulators: RETRODECK_PID)
-    const std::string back = keyboard_ ? "Im Spiel: F12 = Beenden" : "Im Spiel: View = Beenden";
+    // In-game: how to get back (F12 in all emulators: RETRODECK_PID) and
+    // take a screenshot (RETRODECK_SCREENSHOT)
+    const std::string back = keyboard_ ? "Im Spiel: F12 = Beenden · Druck = Screenshot"
+                                       : "Im Spiel: View = Beenden · View + X = Screenshot";
     fonts_->draw(body_, S(17), width_ - S(40), cy - S(12), back, faint, Align::right);
 }
 

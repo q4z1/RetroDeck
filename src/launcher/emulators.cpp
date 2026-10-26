@@ -308,6 +308,12 @@ Launch planLaunch(const Game &game, const std::vector<fs::path> &media, const Se
     // That screen becomes the emulator's first, where SDL opens centered
     // and fullscreen windows (SDL 3.2+, also under sdl2-compat)
     if (!connector.empty()) launch.env.emplace_back("SDL_VIDEO_DISPLAY_PRIORITY", connector);
+    // Where a screenshot in the game goes (View + X, Print or Shift+F12;
+    // patches/*-retrodeck-screenshot.patch): the game's picture in the list
+    const fs::path png = screenshotPath(game);
+    std::error_code ignored;
+    fs::create_directories(png.parent_path(), ignored);
+    launch.env.emplace_back("RETRODECK_SCREENSHOT", png.string());
     const fs::path first = media.front();
     const std::string extension = lower(first.extension().string());
 
@@ -315,7 +321,6 @@ Launch planLaunch(const Game &game, const std::vector<fs::path> &media, const Se
                                          settings.plus4Emulator != "plus4emu")) {
         const bool c64 = game.system == System::c64;
         const fs::path dir = configDir() / "vice";
-        std::error_code ignored;
         fs::create_directories(dir, ignored);
         // VICE's own settings (saved from its menu) live in sdl-vicerc;
         // what RetroDeck sets for this run comes on top from retrodeck.rc
@@ -358,7 +363,6 @@ Launch planLaunch(const Game &game, const std::vector<fs::path> &media, const Se
         if (settings.plus4Emulator == "plus4emu") {
             // Its own folder instead of ~/.plus4emu (patches/plus4emu-home.patch)
             const fs::path home = configDir() / "plus4emu", cfg = home / "retrodeck.cfg";
-            std::error_code ignored;
             fs::create_directories(home, ignored);
             writePlus4emuConfig(cfg, toolchain.plus4emuRoms, pad && view.index >= 0 ? pad->controller : nullptr, settings.joyPort);
             launch.argv = {toolchain.plus4emu.string(), "-cfg", (toolchain.plus4emuRoms / "p4_keys.cfg").string(),
@@ -546,6 +550,10 @@ void Process::pause() {
 
 void Process::resume() {
     if (pid_ > 0) ::kill(-pid_, SIGCONT);
+}
+
+void Process::screenshot() {
+    if (pid_ > 0 && !stopAt_) ::kill(pid_, SIGUSR2);
 }
 
 } // namespace rd

@@ -58,6 +58,9 @@ public:
     // Freezes it (SIGSTOP) and lets it go on (SIGCONT), all its processes
     void pause();
     void resume();
+    // Asks it for a screenshot (SIGUSR2, to it alone): RetroDeck's builds of
+    // the emulators write the picture shown to RETRODECK_SCREENSHOT
+    void screenshot();
     int exitCode() const { return exitCode_; }
 
 private:

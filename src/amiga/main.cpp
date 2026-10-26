@@ -15,12 +15,18 @@
 //   B / X / Y          Space / Return / F1   F12  RetroDeck's question
 //                                              "end the game?" (quit when
 //                                              not started by RetroDeck)
+//                                            Print, Shift+F12  screenshot
 //   Menu               P (pause in many games)
 //   right stick        mouse (port 1), RT/LT left/right button
 //   View + LB/RB       previous/next disk in DF0
 //   View + Y           warp on/off
 //   View + Menu, held  quit
-//   (View alone is the launcher's: it asks whether to end the game)
+//   (View alone is the launcher's: it asks whether to end the game;
+//   View + X too: it asks for a screenshot)
+//
+// A screenshot (RETRODECK_SCREENSHOT, set by RetroDeck) is the picture
+// shown, written to that file: for Print or Shift+F12, and for SIGUSR2 from
+// RetroDeck.
 
 #include "VAmiga.h"
 
@@ -56,6 +62,10 @@ constexpr int textureW = 2 * HPIXELS, cropX = 4 * 69, cropY = 0x1a, cropW = 4 * 
 
 std::atomic<bool> stopSignal{false};
 void onSignal(int) { stopSignal = true; }
+
+// RetroDeck asks for a screenshot (SIGUSR2: View + X on the controller)
+std::atomic<bool> screenshotSignal{false};
+void onScreenshot(int) { screenshotSignal = true; }
 
 // RETRODECK_PID: asks RetroDeck, which started this, whether to end the
 // game (as the controller's View does); false when not started by it
@@ -153,6 +163,7 @@ private:
     void insertDisk(int index);
     void say(const std::string &text, Uint32 ms = 2500);
     void draw();
+    void saveScreenshot();
     bool ours(SDL_JoystickID id) const;
     static void audioCallback(void *user, Uint8 *stream, int length);
     static void message(const void *, Message, std::exception_ptr) {}
@@ -324,6 +335,7 @@ void Frontend::controllerButton(Uint8 button, bool down) {
             say(warp_ ? "Turbo an" : "Turbo aus");
             return;
         case SDL_CONTROLLER_BUTTON_START: return; // the quit combination
+        case SDL_CONTROLLER_BUTTON_X: return;     // the launcher's screenshot
         default: break;
         }
     }
@@ -400,6 +412,12 @@ void Frontend::handle(const SDL_Event &event) {
     case SDL_KEYDOWN:
     case SDL_KEYUP: {
         const bool down = event.type == SDL_KEYDOWN;
+        const bool shift = event.key.keysym.mod & KMOD_SHIFT;
+        if ((event.key.keysym.scancode == SDL_SCANCODE_PRINTSCREEN || (event.key.keysym.scancode == SDL_SCANCODE_F12 && shift)) &&
+            down && !event.key.repeat) {
+            saveScreenshot();
+            break;
+        }
         if (event.key.keysym.scancode == SDL_SCANCODE_F12 && down && !event.key.repeat && !askRetroDeck()) quit_ = true;
         if (event.key.keysym.scancode == SDL_SCANCODE_F11 && down) {
             const bool full = SDL_GetWindowFlags(window_) & SDL_WINDOW_FULLSCREEN_DESKTOP;
@@ -474,6 +492,24 @@ void Frontend::draw() {
     }
 }
 
+// The picture shown into RETRODECK_SCREENSHOT, as the title screenshots
+// have it: hires pixels, every line twice (736 x 574)
+void Frontend::saveScreenshot() {
+    const char *path = std::getenv("RETRODECK_SCREENSHOT");
+    if (!path || !*path || !launched_) return;
+    constexpr int w = cropW / 2, h = cropH * 2;
+    std::vector<u32> pixels(static_cast<std::size_t>(w) * h);
+    amiga_.videoPort.lockTexture();
+    const u32 *texture = amiga_.videoPort.getTexture();
+    for (int y = 0; y < h; ++y) {
+        const u32 *line = texture + (cropY + y / 2) * textureW + cropX;
+        for (int x = 0; x < w; ++x) pixels[static_cast<std::size_t>(y * w + x)] = line[2 * x] | 0xff000000; // ABGR: RGBA bytes
+    }
+    amiga_.videoPort.unlockTexture();
+    const bool saved = stbi_write_png(path, w, h, 4, pixels.data(), w * 4);
+    say(saved ? "Screenshot gespeichert" : "Screenshot nicht gespeichert", 1500);
+}
+
 int Frontend::run() {
     if (!setup()) {
         std::fprintf(stderr, "SDL: %s\n", SDL_GetError());
@@ -483,6 +519,7 @@ int Frontend::run() {
     while (!quit_ && !stopSignal) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) handle(event);
+        if (screenshotSignal.exchange(false)) saveScreenshot();
         pollPads();
         draw();
         ++frames;
@@ -533,6 +570,7 @@ int main(int argc, char **argv) {
     }
     std::signal(SIGTERM, onSignal);
     std::signal(SIGINT, onSignal);
+    std::signal(SIGUSR2, onScreenshot);
     Frontend frontend(std::move(options));
     return frontend.run();
 }

@@ -141,6 +141,8 @@ unavailable() { # NAME COMMIT REPO BINARY
 #                    autostart (multi-load, a loader after the intro)
 #   vice-retrodeck-f12  F12 asks RetroDeck (RETRODECK_PID) whether to end
 #                    the game; its menu goes to another key (MenuKey)
+#   vice-retrodeck-screenshot  Print, Shift+F12 and SIGUSR2 (RetroDeck's
+#                    View + X) save the picture to RETRODECK_SCREENSHOT
 vice_stamp=$(stamp "$VICE_VERSION" "$HERE"/patches/vice-*.patch)
 if want vice && ! up_to_date "$HERE/vice/bin/x64sc" "$vice_stamp"; then
     step "VICE $VICE_VERSION"
@@ -192,13 +194,18 @@ if want yapesdl; then
     #                       drive works (a true drive's motor, or the 1551)
     #   yapesdl-retrodeck-f12  F12 asks RetroDeck (RETRODECK_PID) whether to
     #                       end the game, instead of quitting
-    s=$(stamp "$YAPE_COMMIT" "$HERE"/patches/yapesdl-*.patch)
+    #   yapesdl-retrodeck-screenshot  Print, Shift+F12 and SIGUSR2 (RetroDeck's
+    #                       View + X) save the picture to RETRODECK_SCREENSHOT,
+    #                       as a PNG with RetroDeck's stb_image_write.h
+    stb="$HERE/../third_party/stb/stb_image_write.h"
+    s=$(stamp "$YAPE_COMMIT" "$HERE"/patches/yapesdl-*.patch "$stb")
     if ! up_to_date "$HERE/bin/yapesdl" "$s"; then
         step "YapeSDL"
         if checkout "$YAPE_REPO" "$YAPE_COMMIT" "$SRC/yapesdl"; then
             for patch in "$HERE"/patches/yapesdl-*.patch; do
                 git -C "$SRC/yapesdl" apply "$patch"
             done
+            cp "$stb" "$SRC/yapesdl/"
             make -C "$SRC/yapesdl" -j"$JOBS" yape >"$SRC/yapesdl-build.log" 2>&1 ||
                 { tail -30 "$SRC/yapesdl-build.log"; exit 1; }
             cp "$SRC/yapesdl/yapesdl" "$HERE/bin/yapesdl"
@@ -264,6 +271,9 @@ if want xemu; then
     #                              read the D81's buffer instead)
     #   xemu-retrodeck-f12         F12 asks RetroDeck (RETRODECK_PID) whether
     #                              to end the game
+    #   xemu-retrodeck-screenshot  Print, Shift+F12 and SIGUSR2 (RetroDeck's
+    #                              View + X) save the picture to
+    #                              RETRODECK_SCREENSHOT
     s=$(stamp "$XEMU_COMMIT" "$HERE"/patches/xemu-*.patch)
     if ! up_to_date "$HERE/bin/xmega65" "$s"; then
         step "Xemu (MEGA65)"

@@ -1,0 +1,65 @@
+--- a/gui/gui.cpp
++++ b/gui/gui.cpp
+@@ -284,6 +284,28 @@
+   oldFloppyDriveHeadPositions = newFloppyDriveHeadPositions;
+ }
+ 
++// RETRODECK_SCREENSHOT: the picture shown is saved there for Print or
++// Shift+F12, and when RetroDeck asks for it (SIGUSR2: its controller's
++// View + X), with the next frame the display draws
++static volatile sig_atomic_t retrodeckScreenshotAsked = 0;
++
++static void retrodeckOnScreenshot(int)
++{
++  retrodeckScreenshotAsked = 1;
++}
++
++static void retrodeckScreenshot(void *userData,
++                                const unsigned char *buf, int w_, int h_)
++{
++  (void) userData;
++  try {
++    Plus4Emu::writePNGImage(std::getenv("RETRODECK_SCREENSHOT"), buf, w_, h_,
++                            0, false, 32768);
++  }
++  catch (...) {
++  }
++}
++
+ void Plus4EmuGUI::updateDisplay(double t)
+ {
+ #ifdef WIN32
+@@ -317,6 +339,10 @@
+     return;
+   }
+   updateDisplayEntered = true;
++  if (retrodeckScreenshotAsked) {
++    retrodeckScreenshotAsked = 0;
++    flDisplay->setScreenshotCallback(&retrodeckScreenshot, (void *) this);
++  }
+   Plus4Emu::VMThread::VMThreadStatus  vmThreadStatus(vmThread);
+   if (vmThreadStatus.threadStatus != 0) {
+     exitFlag = true;
+@@ -829,6 +855,8 @@
+ 
+ void Plus4EmuGUI::run()
+ {
++  if (std::getenv("RETRODECK_SCREENSHOT") != (char *) 0)
++    std::signal(SIGUSR2, retrodeckOnScreenshot);
+   config.setErrorCallback(&errorMessageCallback, (void *) this);
+   // set initial window size from saved configuration
+   flDisplay->setFLTKEventCallback(&handleFLTKEvent, (void *) this);
+@@ -1072,6 +1100,13 @@
+     {
+       int   keyCode = Fl::event_key();
+       bool  isKeyPress = (event == FL_KEYDOWN);
++      if ((keyCode == FL_Print ||
++           (keyCode == (FL_F + 12) && (Fl::event_state() & FL_SHIFT) != 0)) &&
++          std::getenv("RETRODECK_SCREENSHOT") != (char *) 0) {
++        if (isKeyPress)
++          retrodeckScreenshotAsked = 1;
++        return 1;
++      }
+       // RETRODECK_PID: F12 asks RetroDeck, which started plus4emu, whether
+       // to end the game (as the controller's View does)
+       if (keyCode == (FL_F + 12) && std::getenv("RETRODECK_PID") != (char *) 0 &&

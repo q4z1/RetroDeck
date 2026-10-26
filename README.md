@@ -50,8 +50,8 @@ the net, at pinned versions:
 | --- | --- |
 | VICE 3.10 | release tarball from SourceForge, SDL2 user interface, installed into `toolchain/vice/`, with `toolchain/patches/vice-drive-warp.patch` (`-drivewarp`: warp while a drive motor runs) |
 | xa 2.4.1, dos2unix | only for building VICE; xa from floodgap.com, dos2unix a stand-in script; both stay in `toolchain/src/shims/` |
-| YapeSDL | [q4z1/yapesdl](https://github.com/q4z1/yapesdl), branch `feature/start-fullscreen` (`YAPE_FULLSCREEN=1` opens it fullscreen), with `toolchain/patches/yapesdl-gamepad.patch` (all SDL events each frame, so the stick does not lag; `YAPE_PADKEYS=off`: the gamepad's buttons only fire; from the branch `fix/sdl-gamepad-event-queue`) and `toolchain/patches/yapesdl-load-turbo.patch` (`YAPE_LOAD_TURBO=1`: warp while a drive works) |
-| plus4emu | [istvan-v/plus4emu](https://github.com/istvan-v/plus4emu) at its last commit (2020), with `toolchain/patches/plus4emu-*.patch`: `scons4` (its SConstruct with SCons 4), `home` (`PLUS4EMU_HOME`: a folder of its own instead of `~/.plus4emu`, and no `p4makecfg` window on the first start), `fullscreen` (`PLUS4EMU_FULLSCREEN`: full screen without the menu bar), `load-turbo` (`PLUS4EMU_LOAD_TURBO`: no speed limit while a drive's LED is lit), `default-audio` (`PLUS4EMU_DEFAULT_AUDIO`: PortAudio's default output, through PipeWire – the first device, which plus4emu took, is a raw `hw:` one the sound server holds, and stayed silent), `retrodeck-f12` (F12 to RetroDeck, see [Controls](#controls)); built without Lua (it wants 5.1 to 5.3, only for its debugger's scripts); its ROMs and keyboard map go to `toolchain/rom/plus4emu/` |
+| YapeSDL | [q4z1/yapesdl](https://github.com/q4z1/yapesdl), branch `feature/start-fullscreen` (`YAPE_FULLSCREEN=1` opens it fullscreen), with `toolchain/patches/yapesdl-gamepad.patch` (all SDL events each frame, so the stick does not lag; `YAPE_PADKEYS=off`: the gamepad's buttons only fire; from the branch `fix/sdl-gamepad-event-queue`) , `toolchain/patches/yapesdl-load-turbo.patch` (`YAPE_LOAD_TURBO=1`: warp while a drive works) and `toolchain/patches/yapesdl-retrodeck-screenshot.patch` (the screenshot, see [Controls](#controls); written as a PNG with RetroDeck's `third_party/stb/stb_image_write.h`, which `setup.sh` copies into its tree) |
+| plus4emu | [istvan-v/plus4emu](https://github.com/istvan-v/plus4emu) at its last commit (2020), with `toolchain/patches/plus4emu-*.patch`: `scons4` (its SConstruct with SCons 4), `home` (`PLUS4EMU_HOME`: a folder of its own instead of `~/.plus4emu`, and no `p4makecfg` window on the first start), `fullscreen` (`PLUS4EMU_FULLSCREEN`: full screen without the menu bar), `load-turbo` (`PLUS4EMU_LOAD_TURBO`: no speed limit while a drive's LED is lit), `default-audio` (`PLUS4EMU_DEFAULT_AUDIO`: PortAudio's default output, through PipeWire – the first device, which plus4emu took, is a raw `hw:` one the sound server holds, and stayed silent), `retrodeck-f12` and `retrodeck-screenshot` (F12 to RetroDeck, the screenshot, see [Controls](#controls)); built without Lua (it wants 5.1 to 5.3, only for its debugger's scripts); its ROMs and keyboard map go to `toolchain/rom/plus4emu/` |
 | FLTK 1.3.9, SCons 4.8.1 | only for building plus4emu, in `toolchain/src/` (the system's FLTK is 1.4): from fltk.org and SourceForge |
 | Xemu | [q4z1/xemu](https://github.com/q4z1/xemu), branch `audio-sync`, with the changes in `toolchain/patches/` applied to the clone: its window opens centered (see [Screens](#screens)), and `-hdosvirt`'s readfile maps the SD-card buffer at `$DE00` as Hyppo does (see [MEGA65 games with data files](#mega65-games-with-data-files)) |
 | vAmiga core | [dirkwhoffmann/vAmiga](https://github.com/dirkwhoffmann/vAmiga), the same commit as `amiga-run` in [q4z1/MEGA65](https://github.com/q4z1/MEGA65) |
@@ -108,11 +108,24 @@ keyboard – pauses the game and asks *"… beenden?"*: **A** or Enter ends it
 and returns to the list, **B**, Esc or View / F12 again plays on.
 **View + Menu held for a second** ends it without asking.
 
+**View + X** – or **Print** (Druck) or **Shift+F12** on the keyboard – takes
+a screenshot: the emulator saves the picture shown as the game's picture in
+the list (`~/.local/share/retrodeck/screenshots/<system>/<file>.png`, see
+[Title screenshots](#title-screenshots)), in place of the one there. Back
+in the list, it shows the new one (*Screenshot gespeichert*). On KDE's
+desktop Print opens Spectacle instead; Shift+F12 works everywhere.
+
 F12 is the same in all emulators because RetroDeck's builds of them pass
 it on (`toolchain/patches/*-retrodeck-f12.patch`, the Amiga front end
 itself): they send the launcher, whose process id they find in
 `RETRODECK_PID`, a `SIGUSR1`. Started without RetroDeck they keep F12's own
-meaning. What F12 did there before: VICE's menu (now on **F10**), YapeSDL's
+meaning. The screenshot works the other way round
+(`toolchain/patches/*-retrodeck-screenshot.patch`): the launcher names the
+file in `RETRODECK_SCREENSHOT`, and the emulator writes it for Print and
+Shift+F12, and when the launcher, which sees View + X, sends it a
+`SIGUSR2` – VICE and plus4emu what they show of the machine's screen, with
+its border, Xemu its viewport, YapeSDL its 384 × 288, the Amiga front end
+the picture shown at 736 × 574. What F12 did there before: VICE's menu (now on **F10**), YapeSDL's
 and the Amiga front end's quit, a function key in plus4emu, and the MEGA65's
 F13/F14 in Xemu.
 
@@ -133,6 +146,7 @@ once in a C64 or Plus/4 game.
 | Right stick, RT / LT | – | mouse, left / right button | – |
 | View + LB / RB | – | previous / next disk in DF0 | – |
 | View + Y | – | turbo on/off | – |
+| View + X | screenshot | screenshot | screenshot (X fires as well) |
 
 Disks load faster: the setting **Turbo beim Laden** (on by default) runs
 the machine in warp while a drive works – VICE and YapeSDL while a drive's
@@ -316,7 +330,8 @@ runs headless and as fast as it can, the Amiga in real time. The defaults
 are 25 s (C64, Plus/4), 30 s (MEGA65) and 40 s (Amiga); a game whose title is
 earlier or later, or comes and goes with a demo, gets its own time in its
 options (*Screenshot nach*; Paradroid: 9 s), and `--seconds` overrides all. Titles behind a question (Another World's code wheel) are
-out of reach this way. The list cuts a frame in one colour off the
+out of reach this way: there, take one in the game (View + X, Print or
+Shift+F12, see [Controls](#controls)), which replaces the picture. The list cuts a frame in one colour off the
 pictures, such as the black around Xemu's.
 
 ## Files
