@@ -36,6 +36,7 @@
 #include <cstring>
 #include <ctime>
 #include <map>
+#include <numbers>
 #include <ranges>
 #include <string>
 #include <vector>
@@ -145,6 +146,7 @@ private:
     // A recording of the running game (gpu-screen-recorder): its file, and
     // what to say about it when the game is over
     Process recorder_;
+    SDL_AudioDeviceID beeper_ = 0; // for the recording's sounds
     std::string audioApp_;
     fs::path recording_;
     std::string recordNote_;
@@ -207,6 +209,7 @@ private:
     void toggleRecording();
     void stopRecording();
     void rumble(Uint32 ms);
+    void beep(bool rising);
     Art *artwork(const Game &game);
     void trimArt();
 
@@ -876,6 +879,7 @@ void App::moveToDisplay(const std::string &connector) {
 }
 
 void App::finished() {
+    if (recorder_.running()) beep(false);
     stopRecording();
     running_ = false;
     prompt_ = viewDown_ = false;
@@ -971,8 +975,9 @@ void App::resumeGame() {
 // said in the list afterwards.
 void App::toggleRecording() {
     if (recorder_.running()) {
-        stopRecording();
         rumble(400);
+        beep(false);
+        stopRecording();
         return;
     }
     char stamp[32];
@@ -990,6 +995,7 @@ void App::toggleRecording() {
     }
     recordNote_.clear();
     rumble(120);
+    beep(true);
 }
 
 // Stops it and waits until the video is written (SIGINT saves it)
@@ -1005,6 +1011,34 @@ void App::stopRecording() {
         recordNote_ = "Aufnahme fehlgeschlagen – Log: ~/.cache/retrodeck/recording.log";
         recordNoteError_ = true;
     }
+}
+
+// Two short notes, rising when a recording starts and falling when it
+// stops: the launcher's own sound, which stays out of the video (that takes
+// only the emulator's)
+void App::beep(bool rising) {
+    constexpr int rate = 48000;
+    if (!beeper_) {
+        if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) return;
+        SDL_AudioSpec want{};
+        want.freq = rate;
+        want.format = AUDIO_F32SYS;
+        want.channels = 1;
+        want.samples = 1024;
+        beeper_ = SDL_OpenAudioDevice(nullptr, 0, &want, nullptr, 0);
+        if (!beeper_) return;
+        SDL_PauseAudioDevice(beeper_, 0);
+    }
+    std::vector<float> samples;
+    for (const float frequency : rising ? std::array{660.0f, 880.0f} : std::array{880.0f, 587.0f}) {
+        const int count = rate * 90 / 1000;
+        for (int i = 0; i < count; ++i) {
+            // 5 ms in and out, so that it does not click
+            const float envelope = std::min(1.0f, std::min(i, count - i) / (rate * 0.005f));
+            samples.push_back(0.25f * envelope * std::sin(2 * std::numbers::pi_v<float> * frequency * i / rate));
+        }
+    }
+    SDL_QueueAudio(beeper_, samples.data(), static_cast<Uint32>(samples.size() * sizeof(float)));
 }
 
 void App::rumble(Uint32 ms) {
@@ -1119,6 +1153,7 @@ int App::run() {
     art_.clear();
     pads_.closeAll();
     delete fonts_;
+    if (beeper_) SDL_CloseAudioDevice(beeper_);
     SDL_DestroyRenderer(renderer_);
     SDL_DestroyWindow(window_);
     SDL_Quit();

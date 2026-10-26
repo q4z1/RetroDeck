@@ -171,8 +171,10 @@ keyboard, Steam + X); F11 switches fullscreen, F12 asks (see above).
 ### Recording a game
 
 **View + B** – or **Ctrl+F12** on the keyboard – starts a video of the
-game, and stops it again: a short rumble of the controller says it runs, a
-long one that it stopped. It goes to `~/Videos/RetroDeck/<game>
+game, and stops it again: two rising notes and a short rumble of the
+controller say it runs, two falling notes and a long rumble that it stopped
+(also when the game ends with it). The notes are the launcher's own sound
+and stay out of the video. It goes to `~/Videos/RetroDeck/<game>
 <date time>.mp4` (the videos folder from `~/.config/user-dirs.dirs`), at
 60 frames a second, with **only the emulator's sound** – a film or music
 playing beside it stays out. While the question *"… beenden?"* is up the
