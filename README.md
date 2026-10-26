@@ -41,8 +41,9 @@ Flatpak it would write the sandbox's compiler and library paths into
 
 `toolchain/setup.sh` first checks the build tools the system needs (gcc,
 cmake, make, pkg-config, git, curl, flex, bison, python, bsdtar, SDL2,
-zlib, and for plus4emu PortAudio, libsndfile, SDL 1.2 (sdl12-compat) and
-GLU) and, if some are missing, names them with the `pacman` line that
+zlib, for plus4emu PortAudio, libsndfile, SDL 1.2 (sdl12-compat) and
+GLU, and for gpu-screen-recorder Meson, Ninja, FFmpeg, libva, PipeWire,
+libpulse, libdrm, Wayland, D-Bus, libcap and a few X11 libraries) and, if some are missing, names them with the `pacman` line that
 installs them; it installs nothing itself. Then it takes everything from
 the net, at pinned versions:
 
@@ -55,6 +56,7 @@ the net, at pinned versions:
 | FLTK 1.3.9, SCons 4.8.1 | only for building plus4emu, in `toolchain/src/` (the system's FLTK is 1.4): from fltk.org and SourceForge |
 | Xemu | [q4z1/xemu](https://github.com/q4z1/xemu), branch `audio-sync`, with the changes in `toolchain/patches/` applied to the clone: its window opens centered (see [Screens](#screens)), and `-hdosvirt`'s readfile maps the SD-card buffer at `$DE00` as Hyppo does (see [MEGA65 games with data files](#mega65-games-with-data-files)) |
 | vAmiga core | [dirkwhoffmann/vAmiga](https://github.com/dirkwhoffmann/vAmiga), the same commit as `amiga-run` in [q4z1/MEGA65](https://github.com/q4z1/MEGA65) |
+| gpu-screen-recorder 6.1.5 | [repo.dec05eba.com/gpu-screen-recorder](https://repo.dec05eba.com/gpu-screen-recorder), for [recording a game](#recording-a-game); `gpu-screen-recorder` and `gsr-kms-server` into `toolchain/bin/`, without its systemd service and NVIDIA modprobe file |
 | `MEGA65.ROM` | built as mega65go does on Windows: the C65 ROM 910828 out of Cloanto's C64 Forever installer, patched with 920413.bdf from files.mega65.org, both checked by SHA-1; with cabextract 1.11 (cabextract.org.uk, built here), olefile 0.47 (GitHub) and the two scripts in `toolchain/tools/` (`msi-extract-cabs.py`, `bspatch.py`, part of this repository, taken over from [q4z1/MEGA65](https://github.com/q4z1/MEGA65)) |
 
 Only the Amiga's **Kickstart ROM** is not on the net (it may not be passed
@@ -115,6 +117,9 @@ the list (`~/.local/share/retrodeck/screenshots/<system>/<file>.png`, see
 in the list, it shows the new one (*Screenshot gespeichert*). On KDE's
 desktop Print opens Spectacle instead; Shift+F12 works everywhere.
 
+**View + B** – or **Ctrl+F12** – records a video of the game, with only
+its sound (see [Recording a game](#recording-a-game)).
+
 F12 is the same in all emulators because RetroDeck's builds of them pass
 it on (`toolchain/patches/*-retrodeck-f12.patch`, the Amiga front end
 itself): they send the launcher, whose process id they find in
@@ -147,6 +152,7 @@ once in a C64 or Plus/4 game.
 | View + LB / RB | – | previous / next disk in DF0 | – |
 | View + Y | – | turbo on/off | – |
 | View + X | screenshot | screenshot | screenshot (X fires as well) |
+| View + B | recording on/off (B fires as well) | recording on/off | recording on/off (B fires as well) |
 
 Disks load faster: the setting **Turbo beim Laden** (on by default) runs
 the machine in warp while a drive works – VICE and YapeSDL while a drive's
@@ -161,6 +167,35 @@ as a real one, which leaves the sound alone (Flashback: 31 s to its first
 screen instead of 46 s). Xemu stays as it is. On the Amiga, View + Y
 switches warp on and off by hand. Its keyboard is the PC keyboard (also Steam's on-screen
 keyboard, Steam + X); F11 switches fullscreen, F12 asks (see above).
+
+### Recording a game
+
+**View + B** – or **Ctrl+F12** on the keyboard – starts a video of the
+game, and stops it again: a short rumble of the controller says it runs, a
+long one that it stopped. It goes to `~/Videos/RetroDeck/<game>
+<date time>.mp4` (the videos folder from `~/.config/user-dirs.dirs`), at
+60 frames a second, with **only the emulator's sound** – a film or music
+playing beside it stays out. While the question *"… beenden?"* is up the
+recording pauses; ending the game ends it. Back in the list RetroDeck says
+*Aufnahme gespeichert*, or where the log is (`~/.cache/retrodeck/recording.log`).
+
+It records with [gpu-screen-recorder](https://repo.dec05eba.com/gpu-screen-recorder)
+from the toolchain: the screen the game is on through KMS (`-w DP-3`, or
+the first screen), encoded on the GPU (VA-API), and the sound of the
+emulator's PipeWire stream alone (`-a app:<name>`: `VICE`, `yapesdl`,
+`PipeWire ALSA [plus4emu]`, `xmega65`, `retrodeck-amiga`). Reading the
+screen through KMS takes `gsr-kms-server` a capability, set once as root –
+without it, it asks for the password on every recording, which nobody
+answers in Game Mode; `setup.sh` prints the line when it is missing:
+
+```sh
+sudo setcap cap_sys_admin+ep toolchain/bin/gsr-kms-server
+```
+
+Ctrl+F12 comes from the emulators (`toolchain/patches/*-retrodeck-video.patch`,
+the Amiga front end itself): they send the launcher a `SIGUSR2`. View + B
+is the launcher's; the Amiga front end leaves B alone with View held, in
+the others B may fire once.
 
 ## Controllers
 
@@ -344,7 +379,8 @@ pictures, such as the black around Xemu's.
 | `third_party/stb/` | stb_truetype, stb_image, stb_image_write (public domain), pinned commit in `VERSION` |
 | `assets/fonts/` | Rajdhani and Titillium Web (SIL Open Font License, licence texts beside them), from [google/fonts](https://github.com/google/fonts) |
 | `~/.config/retrodeck/` | settings, favorites, a game's own options (`games.conf`), VICE's settings (`vice/sdl-vicerc`), YapeSDL's (`yape/Gaia/yapeSDL/yape.conf`), plus4emu's (`plus4emu/`) |
-| `~/.cache/retrodeck/` | games unpacked from ZIPs (anew when a ZIP is replaced), `last-run.log` (the emulator's output of the last start) |
+| `~/.cache/retrodeck/` | games unpacked from ZIPs (anew when a ZIP is replaced), `last-run.log` (the emulator's output of the last start), `recording.log` (gpu-screen-recorder's of the last recording) |
+| `~/Videos/RetroDeck/` | recordings of games |
 
 For checking things without a screen:
 
@@ -360,8 +396,8 @@ or later.
 
 What it uses keeps its own license: the vAmiga core (MPL-2.0, its CPU Moira
 MIT), linked into `retrodeck-amiga`; stb (public domain); the fonts (SIL Open
-Font License, texts in `assets/fonts/`). VICE, Xemu and YapeSDL (GPL-2.0) are
-programs of their own that RetroDeck builds and starts; the patches in
+Font License, texts in `assets/fonts/`). VICE, Xemu and YapeSDL (GPL-2.0) and
+gpu-screen-recorder (GPL-3.0) are programs of their own that RetroDeck builds and starts; the patches in
 `toolchain/patches/` change Xemu and are under its license. ROMs are not part
 of RetroDeck: the MEGA65 ROM is built on your machine from Cloanto's
 installer, and the Kickstart is your own copy.

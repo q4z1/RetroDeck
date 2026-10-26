@@ -16,13 +16,15 @@
 //                                              "end the game?" (quit when
 //                                              not started by RetroDeck)
 //                                            Print, Shift+F12  screenshot
+//                                            Ctrl+F12  RetroDeck's recording
+//                                              on/off
 //   Menu               P (pause in many games)
 //   right stick        mouse (port 1), RT/LT left/right button
 //   View + LB/RB       previous/next disk in DF0
 //   View + Y           warp on/off
 //   View + Menu, held  quit
 //   (View alone is the launcher's: it asks whether to end the game;
-//   View + X too: it asks for a screenshot)
+//   View + X too: it asks for a screenshot, and View + B: it records)
 //
 // A screenshot (RETRODECK_SCREENSHOT, set by RetroDeck) is the picture
 // shown, written to that file: for Print or Shift+F12, and for SIGUSR2 from
@@ -68,10 +70,11 @@ std::atomic<bool> screenshotSignal{false};
 void onScreenshot(int) { screenshotSignal = true; }
 
 // RETRODECK_PID: asks RetroDeck, which started this, whether to end the
-// game (as the controller's View does); false when not started by it
-bool askRetroDeck() {
+// game (as the controller's View does), or with SIGUSR2 to start or stop
+// its recording (View + B); false when not started by it
+bool askRetroDeck(int signal = SIGUSR1) {
     const char *pid = std::getenv("RETRODECK_PID");
-    return pid && std::atoi(pid) > 0 && ::kill(std::atoi(pid), SIGUSR1) == 0;
+    return pid && std::atoi(pid) > 0 && ::kill(std::atoi(pid), signal) == 0;
 }
 
 struct Options {
@@ -336,6 +339,7 @@ void Frontend::controllerButton(Uint8 button, bool down) {
             return;
         case SDL_CONTROLLER_BUTTON_START: return; // the quit combination
         case SDL_CONTROLLER_BUTTON_X: return;     // the launcher's screenshot
+        case SDL_CONTROLLER_BUTTON_B: return;     // the launcher's recording
         default: break;
         }
     }
@@ -416,6 +420,10 @@ void Frontend::handle(const SDL_Event &event) {
         if ((event.key.keysym.scancode == SDL_SCANCODE_PRINTSCREEN || (event.key.keysym.scancode == SDL_SCANCODE_F12 && shift)) &&
             down && !event.key.repeat) {
             saveScreenshot();
+            break;
+        }
+        if (event.key.keysym.scancode == SDL_SCANCODE_F12 && (event.key.keysym.mod & KMOD_CTRL)) {
+            if (down && !event.key.repeat) askRetroDeck(SIGUSR2);
             break;
         }
         if (event.key.keysym.scancode == SDL_SCANCODE_F12 && down && !event.key.repeat && !askRetroDeck()) quit_ = true;

@@ -20,6 +20,22 @@ std::filesystem::path configDir() { return xdg("XDG_CONFIG_HOME", ".config"); }
 std::filesystem::path cacheDir() { return xdg("XDG_CACHE_HOME", ".cache"); }
 std::filesystem::path dataDir() { return xdg("XDG_DATA_HOME", ".local/share"); }
 
+std::filesystem::path videosDir() {
+    const char *env = std::getenv("HOME");
+    const std::string home = env ? env : "/tmp";
+    std::filesystem::path videos = std::filesystem::path(home) / "Videos";
+    // XDG_VIDEOS_DIR="$HOME/Videos"
+    std::ifstream in(configDir().parent_path() / "user-dirs.dirs");
+    for (std::string line; std::getline(in, line);) {
+        if (line.rfind("XDG_VIDEOS_DIR=", 0) != 0) continue;
+        std::string value = line.substr(15);
+        if (value.size() >= 2 && value.front() == '"' && value.back() == '"') value = value.substr(1, value.size() - 2);
+        if (value.rfind("$HOME", 0) == 0) value = home + value.substr(5);
+        if (!value.empty() && value.front() == '/') videos = value;
+    }
+    return videos / "RetroDeck";
+}
+
 bool GameOptions::empty() const {
     return joyPort == 0 && plus4Emulator.empty() && amigaModel.empty() && loadTurbo < 0 && screenshotSeconds == 0;
 }

@@ -83,6 +83,9 @@ constexpr Control ctlMenu{"Menu", muted, false, "M"}, ctlPrevSystem{"LB", muted,
 // An emulator asks to end its game (RETRODECK_PID, SIGUSR1: F12 there)
 std::atomic<bool> askToEnd{false};
 void onAskToEnd(int) { askToEnd = true; }
+// ... or to start or stop a recording (SIGUSR2: Ctrl+F12 there)
+std::atomic<bool> askToRecord{false};
+void onAskToRecord(int) { askToRecord = true; }
 
 SDL_Color accent(System system) {
     switch (system) {
@@ -139,6 +142,13 @@ private:
     // written before the game started, to see whether one was taken in it
     fs::path shot_;
     fs::file_time_type shotBefore_{};
+    // A recording of the running game (gpu-screen-recorder): its file, and
+    // what to say about it when the game is over
+    Process recorder_;
+    std::string audioApp_;
+    fs::path recording_;
+    std::string recordNote_;
+    bool recordNoteError_ = false;
     Uint32 comboSince_ = 0;
     // The quit prompt over a running game, opened by View pressed alone
     bool prompt_ = false, viewDown_ = false, viewAlone_ = false;
@@ -194,6 +204,9 @@ private:
     void openPrompt();
     void resumeGame();
     void quitGame();
+    void toggleRecording();
+    void stopRecording();
+    void rumble(Uint32 ms);
     Art *artwork(const Game &game);
     void trimArt();
 
@@ -246,6 +259,7 @@ bool App::init(int argc, char **argv) {
     // asks whether to end the game as View does
     setenv("RETRODECK_PID", std::to_string(getpid()).c_str(), 1);
     std::signal(SIGUSR1, onAskToEnd);
+    std::signal(SIGUSR2, onAskToRecord);
     SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0");
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
     if (dryRun_ || makeScreenshots_) SDL_SetHint(SDL_HINT_VIDEODRIVER, "offscreen");
@@ -817,7 +831,10 @@ void App::launch() {
         return;
     }
     running_ = true;
-    askToEnd = false;
+    askToEnd = askToRecord = false;
+    audioApp_ = plan.audioApp;
+    recording_.clear();
+    recordNote_.clear();
     stopRequested_ = false;
     runningTitle_ = game->title;
     shot_ = screenshotPath(*game);
@@ -859,6 +876,7 @@ void App::moveToDisplay(const std::string &connector) {
 }
 
 void App::finished() {
+    stopRecording();
     running_ = false;
     prompt_ = viewDown_ = false;
     SDL_ShowWindow(window_);
@@ -875,6 +893,7 @@ void App::finished() {
         }
         say("Screenshot gespeichert");
     }
+    if (!recordNote_.empty()) say(recordNote_, recordNoteError_);
     const int code = process_.exitCode();
     if (code != 0 && !stopRequested_) {
         say("Emulator mit Code " + std::to_string(code) + " beendet – Log: ~/.cache/retrodeck/last-run.log", true);
@@ -901,11 +920,13 @@ void App::watchCombo(Uint32 now) {
 
 // View pressed and let go again on its own (no other button meanwhile,
 // not held long) asks whether to end the game; while asking, View again
-// goes back to it. View + X asks the emulator for a screenshot.
+// goes back to it. View + X asks the emulator for a screenshot (SIGUSR2:
+// it writes RETRODECK_SCREENSHOT), View + B starts or stops a recording.
 void App::watchView(Uint8 button, bool down) {
     if (button != SDL_CONTROLLER_BUTTON_BACK) {
         if (down) viewAlone_ = false;
-        if (down && viewDown_ && button == SDL_CONTROLLER_BUTTON_X && !prompt_) process_.screenshot();
+        if (down && viewDown_ && button == SDL_CONTROLLER_BUTTON_X && !prompt_) process_.send(SIGUSR2);
+        if (down && viewDown_ && button == SDL_CONTROLLER_BUTTON_B && !prompt_) toggleRecording();
         return;
     }
     if (down) {
@@ -930,6 +951,8 @@ void App::openPrompt() {
     // window again puts it in front of the emulator's (Game Mode shows the
     // window mapped last)
     process_.pause();
+    // The question stays out of the recording (SIGUSR2 pauses it)
+    recorder_.send(SIGUSR2);
     prompt_ = true;
     SDL_ShowWindow(window_);
     SDL_RaiseWindow(window_);
@@ -939,6 +962,53 @@ void App::resumeGame() {
     prompt_ = false;
     SDL_HideWindow(window_);
     process_.resume();
+    recorder_.send(SIGUSR2);
+}
+
+// A recording of the game as it is on the screen, with only the emulator's
+// sound (not a film playing beside it), into the videos folder. A short
+// rumble says it started, a long one that it stopped; what came of it is
+// said in the list afterwards.
+void App::toggleRecording() {
+    if (recorder_.running()) {
+        stopRecording();
+        rumble(400);
+        return;
+    }
+    char stamp[32];
+    const std::time_t now = std::time(nullptr);
+    std::strftime(stamp, sizeof stamp, "%Y-%m-%d %H-%M-%S", std::localtime(&now));
+    std::string name = runningTitle_ + " " + stamp + ".mp4";
+    std::replace(name.begin(), name.end(), '/', '-');
+    recording_ = videosDir() / name;
+    std::string error;
+    const Launch plan = planRecording(toolchain_, audioApp_, targetConnector(), recording_, error);
+    if (plan.argv.empty() || !recorder_.start(plan, cacheDir() / "recording.log", error)) {
+        recordNote_ = "Aufnahme: " + error;
+        recordNoteError_ = true;
+        return;
+    }
+    recordNote_.clear();
+    rumble(120);
+}
+
+// Stops it and waits until the video is written (SIGINT saves it)
+void App::stopRecording() {
+    if (!recorder_.running()) return;
+    recorder_.stop(SIGINT, 15000);
+    while (recorder_.running()) SDL_Delay(20);
+    std::error_code error;
+    if (recorder_.exitCode() == 0 && fs::file_size(recording_, error) > 0 && !error) {
+        recordNote_ = "Aufnahme gespeichert: " + recording_.filename().string();
+        recordNoteError_ = false;
+    } else {
+        recordNote_ = "Aufnahme fehlgeschlagen – Log: ~/.cache/retrodeck/recording.log";
+        recordNoteError_ = true;
+    }
+}
+
+void App::rumble(Uint32 ms) {
+    if (const Pad *pad = pads_.active(settings_.pad)) SDL_GameControllerRumble(pad->controller, 0x5000, 0xA000, ms);
 }
 
 void App::quitGame() {
@@ -1007,6 +1077,12 @@ int App::run() {
             if (askToEnd.exchange(false) && !prompt_ && !stopRequested_) {
                 keyboard_ = true;
                 openPrompt();
+            }
+            if (askToRecord.exchange(false) && !prompt_ && !stopRequested_) toggleRecording();
+            // The recorder gave up on its own (no screen access, ...)
+            if (recordNote_.empty() && !recording_.empty() && !recorder_.running() && recorder_.exitCode() != 0) {
+                recordNote_ = "Aufnahme fehlgeschlagen – Log: ~/.cache/retrodeck/recording.log";
+                recordNoteError_ = true;
             }
             if (!process_.running()) finished();
         }
@@ -1308,10 +1384,10 @@ void App::drawFooter() {
     if (current()) x += hint(x, cy, ctlOption, "Optionen");
     x += hint(x, cy, ctlMenu, "Einstellungen");
     hint(x, cy, ctlBack, "Beenden");
-    // In-game: how to get back (F12 in all emulators: RETRODECK_PID) and
-    // take a screenshot (RETRODECK_SCREENSHOT)
-    const std::string back = keyboard_ ? "Im Spiel: F12 = Beenden · Druck = Screenshot"
-                                       : "Im Spiel: View = Beenden · View + X = Screenshot";
+    // In-game: how to get back (F12 in all emulators: RETRODECK_PID), take
+    // a screenshot (RETRODECK_SCREENSHOT) and record a video
+    const std::string back = keyboard_ ? "Im Spiel: F12 Beenden · Druck Bild · Strg+F12 Video"
+                                       : "Im Spiel: View Beenden · View+X Bild · View+B Video";
     fonts_->draw(body_, S(17), width_ - S(40), cy - S(12), back, faint, Align::right);
 }
 

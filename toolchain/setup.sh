@@ -12,6 +12,7 @@
 #                for it built in src/ only                      fltk.org, SourceForge
 #   bin/xmega65  Xemu (MEGA65) + patches/xemu-*.patch            github.com/q4z1/xemu
 #   src/vAmiga   the vAmiga core for the Amiga front end         github.com/dirkwhoffmann/vAmiga
+#   bin/gpu-screen-recorder, bin/gsr-kms-server  recording a game  repo.dec05eba.com
 #   rom/         MEGA65.ROM, built from the C65 ROM in Cloanto's C64 Forever
 #                and the MEGA65 patch 920413 (files.mega65.org)
 #
@@ -22,7 +23,8 @@
 # Run from anywhere, also from VS Code's Flatpak terminal:
 #
 #   toolchain/setup.sh            all components
-#   toolchain/setup.sh vice rom   only these (vice yapesdl plus4emu xemu vamiga rom)
+#   toolchain/setup.sh vice rom   only these (vice yapesdl plus4emu xemu vamiga
+#                                 recorder rom)
 
 set -e
 
@@ -50,6 +52,8 @@ XEMU_REPO=https://github.com/q4z1/xemu.git
 XEMU_COMMIT=658b7f43fa78f44d0947f2731bd968cf270b51f6   # audio-sync
 VAMIGA_REPO=https://github.com/dirkwhoffmann/vAmiga.git
 VAMIGA_COMMIT=c38fa527ea97b9b0036c0e58526cf2714fd97213
+GSR_REPO=https://repo.dec05eba.com/gpu-screen-recorder
+GSR_COMMIT=1c014172dd3e89732bc09d5ca34224be7ccff02a   # 6.1.5
 CABEXTRACT_VERSION=1.11
 OLEFILE_TAG=v0.47
 MSI_URL=https://cdn.cloanto.com/pub/c64forever/c64-forever-11-setup.msi
@@ -88,6 +92,15 @@ pkg-config --exists portaudio-2.0 2>/dev/null || missing="$missing portaudio"
 pkg-config --exists sndfile 2>/dev/null || missing="$missing libsndfile"
 pkg-config --exists sdl 2>/dev/null || missing="$missing sdl12-compat"
 pkg-config --exists glu 2>/dev/null || missing="$missing glu"
+# gpu-screen-recorder: Meson, FFmpeg's libraries, VA-API, PipeWire (the
+# emulator's sound alone), PulseAudio, KMS, Wayland and X11
+need meson meson
+need ninja ninja
+for module in libavcodec:ffmpeg libva-drm:libva libpipewire-0.3:libpipewire libpulse:libpulse libdrm:libdrm \
+    wayland-egl:wayland dbus-1:dbus libcap:libcap x11:libx11 xcomposite:libxcomposite xrandr:libxrandr \
+    xfixes:libxfixes xdamage:libxdamage; do
+    pkg-config --exists "${module%%:*}" 2>/dev/null || missing="$missing ${module#*:}"
+done
 if [ -n "$missing" ]; then
     packages=$(printf '%s\n' $missing | sort -u | tr '\n' ' ')
     echo "Missing on this system: $packages" >&2
@@ -143,6 +156,8 @@ unavailable() { # NAME COMMIT REPO BINARY
 #                    the game; its menu goes to another key (MenuKey)
 #   vice-retrodeck-screenshot  Print, Shift+F12 and SIGUSR2 (RetroDeck's
 #                    View + X) save the picture to RETRODECK_SCREENSHOT
+#   vice-retrodeck-video  Ctrl+F12 starts or stops RetroDeck's recording
+#                    (SIGUSR2 to RETRODECK_PID)
 vice_stamp=$(stamp "$VICE_VERSION" "$HERE"/patches/vice-*.patch)
 if want vice && ! up_to_date "$HERE/vice/bin/x64sc" "$vice_stamp"; then
     step "VICE $VICE_VERSION"
@@ -197,6 +212,8 @@ if want yapesdl; then
     #   yapesdl-retrodeck-screenshot  Print, Shift+F12 and SIGUSR2 (RetroDeck's
     #                       View + X) save the picture to RETRODECK_SCREENSHOT,
     #                       as a PNG with RetroDeck's stb_image_write.h
+    #   yapesdl-retrodeck-video  Ctrl+F12 starts or stops RetroDeck's
+    #                       recording (SIGUSR2 to RETRODECK_PID)
     stb="$HERE/../third_party/stb/stb_image_write.h"
     s=$(stamp "$YAPE_COMMIT" "$HERE"/patches/yapesdl-*.patch "$stb")
     if ! up_to_date "$HERE/bin/yapesdl" "$s"; then
@@ -274,6 +291,8 @@ if want xemu; then
     #   xemu-retrodeck-screenshot  Print, Shift+F12 and SIGUSR2 (RetroDeck's
     #                              View + X) save the picture to
     #                              RETRODECK_SCREENSHOT
+    #   xemu-retrodeck-video       Ctrl+F12 starts or stops RetroDeck's
+    #                              recording (SIGUSR2 to RETRODECK_PID)
     s=$(stamp "$XEMU_COMMIT" "$HERE"/patches/xemu-*.patch)
     if ! up_to_date "$HERE/bin/xmega65" "$s"; then
         step "Xemu (MEGA65)"
@@ -296,6 +315,38 @@ if want vamiga; then
         step "vAmiga core"
         checkout "$VAMIGA_REPO" "$VAMIGA_COMMIT" "$SRC/vAmiga" ||
             fail "vAmiga commit $VAMIGA_COMMIT could not be fetched from $VAMIGA_REPO"
+    fi
+fi
+
+if want recorder; then
+    # The launcher records a game with it (View + B, Ctrl+F12): the screen
+    # through KMS (gsr-kms-server, beside it) and only the emulator's sound
+    # (PipeWire). Without its systemd service, its NVIDIA modprobe file and
+    # its own setcap (which wants root; see below).
+    s=$(stamp "$GSR_COMMIT")
+    if ! up_to_date "$HERE/bin/gpu-screen-recorder" "$s"; then
+        step "gpu-screen-recorder"
+        if checkout "$GSR_REPO" "$GSR_COMMIT" "$SRC/gpu-screen-recorder"; then
+            rm -rf "$SRC/gpu-screen-recorder/build"
+            (cd "$SRC/gpu-screen-recorder" &&
+                meson setup build --buildtype=release -Dsystemd=false -Dcapabilities=false \
+                    -Dnvidia_suspend_fix=false &&
+                ninja -C build) >"$SRC/gpu-screen-recorder-build.log" 2>&1 ||
+                { tail -30 "$SRC/gpu-screen-recorder-build.log"; exit 1; }
+            cp "$SRC/gpu-screen-recorder/build/gsr-kms-server" "$HERE/bin/gsr-kms-server"
+            cp "$SRC/gpu-screen-recorder/build/gpu-screen-recorder" "$HERE/bin/gpu-screen-recorder"
+            echo "$s" >"$HERE/bin/gpu-screen-recorder.stamp"
+        else
+            unavailable gpu-screen-recorder "$GSR_COMMIT" "$GSR_REPO" "$HERE/bin/gpu-screen-recorder"
+        fi
+    fi
+    # Reading the screen through KMS takes CAP_SYS_ADMIN; without it
+    # gsr-kms-server asks for the root password on every recording (through
+    # pkexec), which nobody answers in Game Mode. Set once, as root; a new
+    # build of it needs it again.
+    if ! getcap "$HERE/bin/gsr-kms-server" 2>/dev/null | grep -q cap_sys_admin; then
+        echo "Note: for recording without a password prompt, once:" >&2
+        echo "  sudo setcap cap_sys_admin+ep '$HERE/bin/gsr-kms-server'" >&2
     fi
 fi
 

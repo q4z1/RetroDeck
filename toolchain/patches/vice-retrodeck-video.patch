@@ -1,0 +1,31 @@
+--- a/src/arch/sdl/kbd.c
++++ b/src/arch/sdl/kbd.c
+@@ -237,6 +237,18 @@
+     return kill((pid_t)atoi(pid), SIGUSR1) == 0;
+ }
+ 
++/* RETRODECK_PID: Ctrl+F12 starts or stops RetroDeck's recording of the
++   game (SIGUSR2, as its controller's View + B does) */
++static int retrodeck_record(void)
++{
++    const char *pid = getenv("RETRODECK_PID");
++
++    if (pid == NULL || atoi(pid) <= 0) {
++        return 0;
++    }
++    return kill((pid_t)atoi(pid), SIGUSR2) == 0;
++}
++
+ /* RETRODECK_SCREENSHOT: the picture shown is saved there for Print or
+    Shift+F12, and when RetroDeck asks for it (SIGUSR2: its controller's
+    View + X), between two frames (sdlkbd_retrodeck_poll) */
+@@ -297,6 +309,9 @@
+          (SDL1x_to_SDL2x_Keys(key) == SDLK_F12 && (mod & KMOD_SHIFT))) && retrodeck_screenshot()) {
+         return;
+     }
++    if (SDL1x_to_SDL2x_Keys(key) == SDLK_F12 && (mod & KMOD_CTRL) && retrodeck_record()) {
++        return;
++    }
+     if (SDL1x_to_SDL2x_Keys(key) == SDLK_F12 && retrodeck_ask()) {
+         return;
+     }

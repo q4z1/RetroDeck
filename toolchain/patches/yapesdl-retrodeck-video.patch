@@ -1,0 +1,16 @@
+--- a/main.cpp
++++ b/main.cpp
+@@ -1029,6 +1029,13 @@
+ 					retrodeckScreenshot = 1;
+ 					break;
+ 				}
++				// RETRODECK_PID: Ctrl+F12 starts or stops RetroDeck's
++				// recording of the game (as the controller's View + B)
++				if (event.key.keysym.sym == SDLK_F12 && (event.key.keysym.mod & KMOD_CTRL)
++					&& getenv("RETRODECK_PID") && atoi(getenv("RETRODECK_PID")) > 0) {
++					kill(atoi(getenv("RETRODECK_PID")), SIGUSR2);
++					break;
++				}
+ 				if (event.key.keysym.mod & KMOD_LALT) {
+ 					sound_pause();
+ 						switch (event.key.keysym.sym) {

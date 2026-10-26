@@ -244,6 +244,7 @@ Toolchain Toolchain::locate(const fs::path &root, const fs::path &launcherDir, c
     t.plus4emuRoms = tc / "rom" / "plus4emu";
     t.xmega65 = tc / "bin" / "xmega65";
     t.amiga = launcherDir / "retrodeck-amiga";
+    t.recorder = tc / "bin" / "gpu-screen-recorder";
     t.mega65Rom = tc / "rom" / "MEGA65.ROM";
     // Your own Kickstart (it may not be passed on), next to the Amiga games
     for (const fs::path &folder : amigaFolders) {
@@ -355,6 +356,7 @@ Launch planLaunch(const Game &game, const std::vector<fs::path> &media, const Se
         else launch.argv.insert(launch.argv.end(), {"+autostart-warp", "+drivewarp"});
         if (c64 && extension == ".crt") launch.argv.insert(launch.argv.end(), {"-cartcrt", first.string()});
         else launch.argv.insert(launch.argv.end(), {"-autostart", first.string()});
+        launch.audioApp = "VICE";
         return launch;
     }
 
@@ -373,6 +375,8 @@ Launch planLaunch(const Game &game, const std::vector<fs::path> &media, const Se
             // its list, a raw HDMI one (patches/plus4emu-default-audio.patch)
             launch.env.emplace_back("PLUS4EMU_DEFAULT_AUDIO", "1");
             if (settings.loadTurbo) launch.env.emplace_back("PLUS4EMU_LOAD_TURBO", "1");
+            // PortAudio through pipewire-alsa
+            launch.audioApp = "PipeWire ALSA [plus4emu]";
             break;
         }
         launch.argv = {toolchain.yapesdl.string(), first.string()};
@@ -387,6 +391,7 @@ Launch planLaunch(const Game &game, const std::vector<fs::path> &media, const Se
         }
         // patches/yapesdl-load-turbo.patch
         if (settings.loadTurbo) launch.env.emplace_back("YAPE_LOAD_TURBO", "1");
+        launch.audioApp = "yapesdl";
         break;
     case System::mega65:
         launch.argv = {toolchain.xmega65.string(), "-rom", toolchain.mega65Rom.string(), "-fullscreen", "-besure"};
@@ -397,16 +402,35 @@ Launch planLaunch(const Game &game, const std::vector<fs::path> &media, const Se
         else launch.argv.insert(launch.argv.end(), {"-8", first.string(), "-autoload"});
         // Xemu's menu is a GTK popup, which only shows over the SDL window with X11
         if (std::getenv("DISPLAY")) launch.env.emplace_back("GDK_BACKEND", "x11");
+        launch.audioApp = "xmega65";
         break;
     case System::amiga:
         launch.argv = {toolchain.amiga.string(), "--kickstart", toolchain.kickstart.string(), "--model", settings.amigaModel};
         if (pad && view.index >= 0) launch.argv.insert(launch.argv.end(), {"--pad", std::to_string(view.index)});
         if (settings.loadTurbo) launch.argv.push_back("--load-turbo");
         for (const fs::path &disk : media) launch.argv.push_back(disk.string());
+        launch.audioApp = "retrodeck-amiga";
         break;
     default:
         break;
     }
+    return launch;
+}
+
+Launch planRecording(const Toolchain &toolchain, const std::string &audioApp, const std::string &connector,
+                     const fs::path &file, std::string &error) {
+    Launch launch;
+    if (!executable(toolchain.recorder)) {
+        error = "gpu-screen-recorder fehlt – toolchain/setup.sh recorder";
+        return launch;
+    }
+    std::error_code ignored;
+    fs::create_directories(file.parent_path(), ignored);
+    // The screen by its connector (KMS: gsr-kms-server beside it), 60 frames
+    // a second; the sound of the emulator alone, not what else plays
+    launch.argv = {toolchain.recorder.string(), "-w", connector.empty() ? "screen" : connector, "-f", "60",
+                   "-c", "mp4", "-ac", "aac", "-o", file.string()};
+    if (!audioApp.empty()) launch.argv.insert(launch.argv.end(), {"-a", "app:" + audioApp});
     return launch;
 }
 
@@ -520,6 +544,7 @@ bool Process::start(const Launch &launch, const fs::path &log, std::string &erro
         return false;
     }
     stopAt_ = 0;
+    exitCode_ = 0;
     return true;
 }
 
@@ -536,12 +561,12 @@ bool Process::running() {
     return true;
 }
 
-void Process::stop() {
+void Process::stop(int signal, Uint32 grace) {
     if (pid_ <= 0 || stopAt_) return;
-    ::kill(-pid_, SIGTERM);
-    // A paused process only sees the SIGTERM once it runs again
+    ::kill(-pid_, signal);
+    // A paused process only sees the signal once it runs again
     ::kill(-pid_, SIGCONT);
-    stopAt_ = SDL_GetTicks() + 2500;
+    stopAt_ = SDL_GetTicks() + grace;
 }
 
 void Process::pause() {
@@ -552,8 +577,8 @@ void Process::resume() {
     if (pid_ > 0) ::kill(-pid_, SIGCONT);
 }
 
-void Process::screenshot() {
-    if (pid_ > 0 && !stopAt_) ::kill(pid_, SIGUSR2);
+void Process::send(int signal) {
+    if (pid_ > 0 && !stopAt_) ::kill(pid_, signal);
 }
 
 } // namespace rd

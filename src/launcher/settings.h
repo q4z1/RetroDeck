@@ -49,5 +49,8 @@ std::filesystem::path configDir();
 std::filesystem::path cacheDir();
 // $XDG_DATA_HOME/retrodeck (title screenshots)
 std::filesystem::path dataDir();
+// The videos folder (XDG_VIDEOS_DIR in ~/.config/user-dirs.dirs, else
+// ~/Videos) / RetroDeck: recordings of games
+std::filesystem::path videosDir();
 
 } // namespace rd

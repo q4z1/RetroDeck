@@ -1,0 +1,17 @@
+--- a/xemu/emutools_hid.c
++++ b/xemu/emutools_hid.c
+@@ -632,6 +632,14 @@
+ 					hid_retrodeck_screenshot = 1;
+ 				break;
+ 			}
++			// RETRODECK_PID: Ctrl+F12 starts or stops RetroDeck's recording
++			// of the game (as the controller's View + B does)
++			if (event->key.keysym.scancode == SDL_SCANCODE_F12 && (event->key.keysym.mod & KMOD_CTRL) &&
++			    getenv("RETRODECK_PID") && atoi(getenv("RETRODECK_PID")) > 0) {
++				if (event->type == SDL_KEYDOWN && !event->key.repeat)
++					kill((pid_t)atoi(getenv("RETRODECK_PID")), SIGUSR2);
++				break;
++			}
+ 			// RETRODECK_PID: F12 asks RetroDeck, which started Xemu, whether
+ 			// to end the game (as the controller's View does)
+ 			if (event->key.keysym.scancode == SDL_SCANCODE_F12 && getenv("RETRODECK_PID") &&

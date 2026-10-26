@@ -1,0 +1,18 @@
+--- a/gui/gui.cpp
++++ b/gui/gui.cpp
+@@ -1107,6 +1107,15 @@
+           retrodeckScreenshotAsked = 1;
+         return 1;
+       }
++      // RETRODECK_PID: Ctrl+F12 starts or stops RetroDeck's recording of
++      // the game (as the controller's View + B does)
++      if (keyCode == (FL_F + 12) && (Fl::event_state() & FL_CTRL) != 0 &&
++          std::getenv("RETRODECK_PID") != (char *) 0 &&
++          std::atoi(std::getenv("RETRODECK_PID")) > 0) {
++        if (isKeyPress)
++          kill(pid_t(std::atoi(std::getenv("RETRODECK_PID"))), SIGUSR2);
++        return 1;
++      }
+       // RETRODECK_PID: F12 asks RetroDeck, which started plus4emu, whether
+       // to end the game (as the controller's View does)
+       if (keyCode == (FL_F + 12) && std::getenv("RETRODECK_PID") != (char *) 0 &&

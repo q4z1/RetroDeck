@@ -8,6 +8,7 @@
 
 #include <sys/types.h>
 
+#include <csignal>
 #include <string>
 #include <utility>
 #include <vector>
@@ -17,6 +18,7 @@ namespace rd {
 struct Toolchain {
     fs::path root;
     fs::path x64sc, xplus4, yapesdl, plus4emu, xmega65, amiga;
+    fs::path recorder; // gpu-screen-recorder
     fs::path plus4emuRoms, mega65Rom, kickstart;
 
     // The Kickstart is looked for in `amigaFolders` (the library's)
@@ -30,7 +32,8 @@ struct Toolchain {
 struct Launch {
     std::vector<std::string> argv;
     std::vector<std::pair<std::string, std::string>> env;
-    int timeout = 0; // seconds after which it is stopped; 0: none
+    int timeout = 0;       // seconds after which it is stopped; 0: none
+    std::string audioApp;  // its sound in PipeWire (application.name)
 };
 
 // Empty argv (and error set) if the game cannot be started. `connector`
@@ -47,20 +50,26 @@ Launch planScreenshot(const Game &game, const std::vector<fs::path> &media, cons
 // Seconds that reach most games' title screens
 int screenshotSeconds(System system);
 
+// A video of the screen (`connector`, or the first one) with only the
+// sound of `audioApp` (Launch::audioApp), into `file` (MP4); empty argv
+// and error set if the recorder is missing
+Launch planRecording(const Toolchain &toolchain, const std::string &audioApp, const std::string &connector,
+                     const fs::path &file, std::string &error);
+
 class Process {
 public:
     ~Process();
     bool start(const Launch &launch, const fs::path &log, std::string &error);
     // Polls; false once it has exited (then exitCode() is valid)
     bool running();
-    // Asks it to quit (SIGTERM), and kills it if it is still there after a while
-    void stop();
+    // Asks it to quit (`signal`), and kills it if it is still there after
+    // `grace` ms
+    void stop(int signal = SIGTERM, Uint32 grace = 2500);
     // Freezes it (SIGSTOP) and lets it go on (SIGCONT), all its processes
     void pause();
     void resume();
-    // Asks it for a screenshot (SIGUSR2, to it alone): RetroDeck's builds of
-    // the emulators write the picture shown to RETRODECK_SCREENSHOT
-    void screenshot();
+    // Sends it `signal`, to it alone (not its children)
+    void send(int signal);
     int exitCode() const { return exitCode_; }
 
 private:
