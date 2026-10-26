@@ -34,6 +34,11 @@ launcher and the Amiga front end into `build/bin/`. The first run takes a
 while (VICE, the vAmiga core, the 268 MB for the MEGA65 ROM); after that
 only what changed is rebuilt.
 
+In VS Code, Ctrl+Shift+B runs it (`.vscode/tasks.json`). CMake Tools is
+kept from configuring on its own (`.vscode/settings.json`): inside VS Code's
+Flatpak it would write the sandbox's compiler and library paths into
+`build/`, and `./build.sh` would then fail.
+
 `toolchain/setup.sh` first checks the build tools the system needs (gcc,
 cmake, make, pkg-config, git, curl, flex, bison, python, bsdtar, SDL2,
 zlib, and for plus4emu PortAudio, libsndfile, SDL 1.2 (sdl12-compat) and

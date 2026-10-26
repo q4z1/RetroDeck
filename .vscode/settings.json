@@ -1,0 +1,15 @@
+{
+    // VS Code runs in a Flatpak, so CMake Tools configures with the
+    // sandbox's compiler and libraries (/usr/include/x86_64-linux-gnu/SDL2,
+    // ...) - written into build/, they break ./build.sh, which builds on the
+    // host. Building goes through ./build.sh (Ctrl+Shift+B, tasks.json);
+    // CMake Tools never configures on its own.
+    "cmake.configureOnOpen": false,
+    "cmake.configureOnEdit": false,
+    "cmake.automaticReconfigure": false,
+    "cmake.enableAutomaticKitScan": false,
+    // and if it is told to, it does so elsewhere, not in the host's build/
+    "cmake.buildDirectory": "${workspaceFolder}/build/vscode-sandbox",
+    // clangd takes the host build's compile_commands.json from build/
+    "clangd.arguments": ["--compile-commands-dir=${workspaceFolder}/build"]
+}
