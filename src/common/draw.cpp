@@ -17,8 +17,61 @@ SDL_Vertex vertex(float x, float y, SDL_Color color) {
     return {{x, y}, color, {0, 0}};
 }
 
+// SDL_RenderGeometry does not smooth edges: every shape gets a rim one
+// pixel wide around it that fades from its colour to transparent
+constexpr float rim = 1.0f;
+
+void draw(SDL_Renderer *renderer, const std::vector<SDL_Vertex> &vertices) {
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    SDL_RenderGeometry(renderer, nullptr, vertices.data(), static_cast<int>(vertices.size()), nullptr, 0);
+}
+
+// The band between two closed outlines with the same number of points
+void band(std::vector<SDL_Vertex> &vertices, const std::vector<SDL_FPoint> &a, SDL_Color colorA,
+          const std::vector<SDL_FPoint> &b, SDL_Color colorB) {
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        const std::size_t j = (i + 1) % a.size();
+        vertices.push_back(vertex(a[i].x, a[i].y, colorA));
+        vertices.push_back(vertex(a[j].x, a[j].y, colorA));
+        vertices.push_back(vertex(b[i].x, b[i].y, colorB));
+        vertices.push_back(vertex(b[i].x, b[i].y, colorB));
+        vertices.push_back(vertex(a[j].x, a[j].y, colorA));
+        vertices.push_back(vertex(b[j].x, b[j].y, colorB));
+    }
+}
+
+// A filled polygon (points in order) with its rim: each edge pushed out by
+// the rim, fading out (convex corners keep a tiny notch, invisible at 1 px)
+void fillPolygon(SDL_Renderer *renderer, const std::vector<SDL_FPoint> &points, SDL_FPoint center, SDL_Color color) {
+    std::vector<SDL_Vertex> vertices;
+    const SDL_Color clear = withAlpha(color, 0);
+    float area = 0;
+    for (std::size_t i = 0; i < points.size(); ++i) {
+        const SDL_FPoint &a = points[i], &b = points[(i + 1) % points.size()];
+        vertices.push_back(vertex(center.x, center.y, color));
+        vertices.push_back(vertex(a.x, a.y, color));
+        vertices.push_back(vertex(b.x, b.y, color));
+        area += a.x * b.y - b.x * a.y;
+    }
+    // Outward is to the left or right of an edge, depending on the winding
+    const float side = area > 0 ? 1.0f : -1.0f;
+    for (std::size_t i = 0; i < points.size(); ++i) {
+        const SDL_FPoint &a = points[i], &b = points[(i + 1) % points.size()];
+        const float dx = b.x - a.x, dy = b.y - a.y, length = std::hypot(dx, dy);
+        if (length <= 0) continue;
+        const float nx = side * dy / length * rim, ny = -side * dx / length * rim;
+        vertices.push_back(vertex(a.x, a.y, color));
+        vertices.push_back(vertex(b.x, b.y, color));
+        vertices.push_back(vertex(a.x + nx, a.y + ny, clear));
+        vertices.push_back(vertex(a.x + nx, a.y + ny, clear));
+        vertices.push_back(vertex(b.x, b.y, color));
+        vertices.push_back(vertex(b.x + nx, b.y + ny, clear));
+    }
+    draw(renderer, vertices);
+}
+
 int cornerSteps(SDL_Rect rect, float radius) {
-    return std::clamp(static_cast<int>(std::min(radius, std::min(rect.w, rect.h) / 2.0f) / 2), 2, 12);
+    return std::clamp(static_cast<int>(std::min(radius, std::min(rect.w, rect.h) / 2.0f) / 2), 2, 16);
 }
 
 // The outline of a rounded rectangle, corner by corner, inset by `inset`
@@ -49,37 +102,40 @@ void fillRect(SDL_Renderer *renderer, SDL_Rect rect, SDL_Color color) {
 void fillRounded(SDL_Renderer *renderer, SDL_Rect rect, int radius, SDL_Color color) {
     if (rect.w <= 0 || rect.h <= 0) return;
     if (radius <= 0) return fillRect(renderer, rect, color);
-    const std::vector<SDL_FPoint> outline =
-        roundedOutline(rect, static_cast<float>(radius), 0, cornerSteps(rect, static_cast<float>(radius)));
+    // Solid up to half the rim inside the edge, fading out to half outside
+    const int steps = cornerSteps(rect, static_cast<float>(radius));
+    const std::vector<SDL_FPoint> solid = roundedOutline(rect, static_cast<float>(radius), rim / 2, steps);
+    const std::vector<SDL_FPoint> fade = roundedOutline(rect, static_cast<float>(radius), -rim / 2, steps);
     std::vector<SDL_Vertex> vertices;
-    vertices.reserve(outline.size() * 3);
+    vertices.reserve(solid.size() * 9);
     const SDL_FPoint center{rect.x + rect.w / 2.0f, rect.y + rect.h / 2.0f};
-    for (std::size_t i = 0; i < outline.size(); ++i) {
-        const SDL_FPoint &a = outline[i], &b = outline[(i + 1) % outline.size()];
+    for (std::size_t i = 0; i < solid.size(); ++i) {
+        const SDL_FPoint &a = solid[i], &b = solid[(i + 1) % solid.size()];
         vertices.push_back(vertex(center.x, center.y, color));
         vertices.push_back(vertex(a.x, a.y, color));
         vertices.push_back(vertex(b.x, b.y, color));
     }
-    SDL_RenderGeometry(renderer, nullptr, vertices.data(), static_cast<int>(vertices.size()), nullptr, 0);
+    band(vertices, solid, color, fade, withAlpha(color, 0));
+    draw(renderer, vertices);
 }
 
 void outlineRounded(SDL_Renderer *renderer, SDL_Rect rect, int radius, int thickness, SDL_Color color) {
     if (rect.w <= 0 || rect.h <= 0 || thickness <= 0) return;
-    // Both outlines with the same number of points, so they pair up
+    // All outlines with the same number of points, so they pair up: the
+    // ring solid between half a rim inside both of its edges, fading out
+    // across them
     const int steps = cornerSteps(rect, static_cast<float>(radius));
-    const std::vector<SDL_FPoint> outer = roundedOutline(rect, static_cast<float>(radius), 0, steps);
-    const std::vector<SDL_FPoint> inner = roundedOutline(rect, static_cast<float>(radius), static_cast<float>(thickness), steps);
+    const float r = static_cast<float>(radius), t = static_cast<float>(thickness);
+    const std::vector<SDL_FPoint> outerFade = roundedOutline(rect, r, -rim / 2, steps);
+    const std::vector<SDL_FPoint> outer = roundedOutline(rect, r, rim / 2, steps);
+    const std::vector<SDL_FPoint> inner = roundedOutline(rect, r, std::max(rim / 2, t - rim / 2), steps);
+    const std::vector<SDL_FPoint> innerFade = roundedOutline(rect, r, t + rim / 2, steps);
+    const SDL_Color clear = withAlpha(color, 0);
     std::vector<SDL_Vertex> vertices;
-    for (std::size_t i = 0; i < outer.size(); ++i) {
-        const std::size_t j = (i + 1) % outer.size();
-        vertices.push_back(vertex(outer[i].x, outer[i].y, color));
-        vertices.push_back(vertex(outer[j].x, outer[j].y, color));
-        vertices.push_back(vertex(inner[i].x, inner[i].y, color));
-        vertices.push_back(vertex(inner[i].x, inner[i].y, color));
-        vertices.push_back(vertex(outer[j].x, outer[j].y, color));
-        vertices.push_back(vertex(inner[j].x, inner[j].y, color));
-    }
-    SDL_RenderGeometry(renderer, nullptr, vertices.data(), static_cast<int>(vertices.size()), nullptr, 0);
+    band(vertices, outerFade, clear, outer, color);
+    band(vertices, outer, color, inner, color);
+    band(vertices, inner, color, innerFade, clear);
+    draw(renderer, vertices);
 }
 
 void fillCircle(SDL_Renderer *renderer, int cx, int cy, int radius, SDL_Color color) {
@@ -87,23 +143,19 @@ void fillCircle(SDL_Renderer *renderer, int cx, int cy, int radius, SDL_Color co
 }
 
 void fillStar(SDL_Renderer *renderer, int cx, int cy, int radius, SDL_Color color) {
-    std::vector<SDL_Vertex> vertices;
+    std::vector<SDL_FPoint> points;
     const float inner = radius * 0.45f;
     for (int i = 0; i < 10; ++i) {
-        const float a0 = static_cast<float>(M_PI) * (-0.5f + i / 5.0f), a1 = static_cast<float>(M_PI) * (-0.5f + (i + 1) / 5.0f);
-        const float r0 = i % 2 ? inner : radius, r1 = i % 2 ? radius : inner;
-        vertices.push_back(vertex(static_cast<float>(cx), static_cast<float>(cy), color));
-        vertices.push_back(vertex(cx + r0 * std::cos(a0), cy + r0 * std::sin(a0), color));
-        vertices.push_back(vertex(cx + r1 * std::cos(a1), cy + r1 * std::sin(a1), color));
+        const float a = static_cast<float>(M_PI) * (-0.5f + i / 5.0f), r = i % 2 ? inner : radius;
+        points.push_back({cx + r * std::cos(a), cy + r * std::sin(a)});
     }
-    SDL_RenderGeometry(renderer, nullptr, vertices.data(), static_cast<int>(vertices.size()), nullptr, 0);
+    fillPolygon(renderer, points, {static_cast<float>(cx), static_cast<float>(cy)}, color);
 }
 
 void fillArrow(SDL_Renderer *renderer, int cx, int cy, int size, int dir, SDL_Color color) {
     const float half = size / 2.0f, tip = dir < 0 ? -half : half;
-    const SDL_Vertex vertices[3] = {vertex(cx + tip, static_cast<float>(cy), color), vertex(cx - tip, cy - half, color),
-                                    vertex(cx - tip, cy + half, color)};
-    SDL_RenderGeometry(renderer, nullptr, vertices, 3, nullptr, 0);
+    const std::vector<SDL_FPoint> points{{cx + tip, static_cast<float>(cy)}, {cx - tip, cy - half}, {cx - tip, cy + half}};
+    fillPolygon(renderer, points, {cx - tip / 3, static_cast<float>(cy)}, color);
 }
 
 void fillGradient(SDL_Renderer *renderer, SDL_Rect rect, SDL_Color top, SDL_Color bottom) {
