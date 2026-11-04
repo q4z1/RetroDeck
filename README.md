@@ -292,6 +292,12 @@ D81 (or in its ZIP, which is unpacked whole), also under its name in lower
 case – the MEGA65 asks for `space.scp`, and Linux tells that apart from
 `SPACE.SCP`. Files a game writes there stay in that folder.
 
+A ZIP with several D81s is one game, named after the ZIP and started from
+the first D81 by name; the others lie beside it on the card, for the game
+to mount itself. Zak McKracken (MEGASPUTM) mounts `zak2.d81` and keeps its
+saved games on `zaksaves.d81`; they stay in the unpacked folder until the ZIP
+is replaced.
+
 Xemu's virtual readfile put the data into the SD-card buffer but left the
 F011 buffer mapped at `$DE00`, so Space Commander read the D81's sector
 instead and reported a wrong `SPACE.SCP`; `patches/xemu-hdos-readfile-buffer.patch`

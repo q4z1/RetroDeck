@@ -349,8 +349,21 @@ Library scanLibrary(const fs::path &root, const fs::path &config) {
         for (const std::string &group : order) {
             auto &disks = groups[group];
             std::stable_sort(disks.begin(), disks.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
+            // A MEGA65 game's ZIP is unpacked whole, its D81s side by side on
+            // the card: several are one game (Zak McKracken's zak1, zak2 and
+            // zaksaves.d81), named after the ZIP, started from the first D81
+            const bool mega65Disks =
+                entry.system == System::mega65 && disks.size() > 1 && !disks.front().second.archive.empty() &&
+                std::all_of(disks.begin(), disks.end(),
+                            [](const auto &d) { return lower(d.second.file.extension().string()) == ".d81"; });
+            if (mega65Disks) {
+                std::sort(disks.begin(), disks.end(), [](const auto &a, const auto &b) {
+                    return lower(a.second.file.string()) < lower(b.second.file.string());
+                });
+            }
             // Without disk numbers, every file is a game of its own
-            const bool multiDisk = disks.size() > 1 && std::all_of(disks.begin(), disks.end(), [](const auto &d) { return d.first > 0; });
+            const bool multiDisk = mega65Disks || (disks.size() > 1 && std::all_of(disks.begin(), disks.end(),
+                                                                                    [](const auto &d) { return d.first > 0; }));
             std::vector<std::vector<Candidate>> games;
             if (multiDisk) {
                 games.emplace_back();
