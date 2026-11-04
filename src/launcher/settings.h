@@ -23,7 +23,7 @@ struct GameOptions {
 
 struct Settings {
     std::string pad = "auto";            // name of the controller to play with, or "auto" (the last one used)
-    std::string display = "auto";        // connector of the screen to open on (DP-3), or "auto"
+    std::string display = "auto";        // the monitor to open on (displays.h: edid:...), or "auto" (the main screen)
     std::string plus4Emulator = "vice";  // "vice", "yape" or "plus4emu"
     std::string amigaModel = "A500_OCS_1MB";
     int joyPort = 2;                     // C64 and Plus/4: the port the joystick is in

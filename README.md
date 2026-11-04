@@ -277,8 +277,21 @@ VICE is told with `-windowxpos/-windowypos`, and RetroDeck's copy of Xemu is
 changed to (without it, KWin places Xemu's window where it likes).
 
 The setting **Bildschirm** chooses the screen for RetroDeck itself:
-*automatic* (where it was opened) or a connector. Changing it moves the
-launcher there at once, and it opens there from then on.
+*Hauptbildschirm* (the desktop's main screen) or a monitor. Changing it
+moves the launcher there at once, and it opens there from then on.
+
+The monitor is kept by its EDID, not by its connector: maker, product code
+and serial number (`display = edid:BNQ-78ED-S7L04732019` in
+`settings.conf`). A dock that restarts drops its screens for a moment and
+names its connectors anew (DP-3 became DP-5); the monitor stays the same.
+When it is not connected, RetroDeck opens on the main screen; when it comes
+back, the launcher moves there again (also after a game). The main screen is
+KDE's first in its output order (Wayland's `kde_output_order_v1`, the
+*primary* screen of the display settings); SDL itself only knows the order
+in which the screens appeared, so before this the launcher came up on the
+second monitor. Without KDE (Game Mode has a single screen) SDL's first
+screen stays. A connector in older settings becomes its monitor, or the
+main screen if it is gone.
 
 ## MEGA65 games with data files
 

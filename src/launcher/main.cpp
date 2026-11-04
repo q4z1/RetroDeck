@@ -197,6 +197,8 @@ private:
     void finished();
     std::string targetConnector() const;
     void moveToDisplay(const std::string &connector);
+    // To the chosen monitor, else the main screen (when screens come and go)
+    void placeWindow();
     void say(const std::string &text, bool error = false);
     void pollHeld(Uint32 now);
     bool isHeld(Action action) const;
@@ -272,8 +274,16 @@ bool App::init(int argc, char **argv) {
     SDL_SetHint("SDL_APP_ID", "retrodeck");
     SDL_SetHint("SDL_VIDEO_WAYLAND_WMCLASS", "retrodeck");
     SDL_SetHint("SDL_VIDEO_X11_WMCLASS", "retrodeck");
-    // Open on the screen chosen in the settings (it becomes SDL's first)
-    if (settings_.display != "auto") setenv("SDL_VIDEO_DISPLAY_PRIORITY", settings_.display.c_str(), 1);
+    // Settings from before named the connector (DP-3), which a dock that
+    // restarts names anew: a connected one becomes its monitor, one that is
+    // gone the main screen
+    if (settings_.display != "auto" && !isMonitorId(settings_.display)) {
+        const std::string id = monitorOf(settings_.display);
+        settings_.display = id.empty() ? "auto" : id;
+    }
+    // Open on the chosen monitor, else the main screen (it becomes SDL's first)
+    if (const std::string screen = preferredConnector(settings_.display); !screen.empty())
+        setenv("SDL_VIDEO_DISPLAY_PRIORITY", screen.c_str(), 1);
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_EVENTS) != 0) {
         std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return false;
@@ -648,12 +658,15 @@ void App::handleSettings(Action action) {
     }
     case rowDisplay: {
         std::vector<std::string> choices{"auto"};
-        for (const Display &display : displays_) if (!display.connector.empty()) choices.push_back(display.connector);
+        for (const Display &display : displays_) {
+            if (!display.id.empty() && std::find(choices.begin(), choices.end(), display.id) == choices.end())
+                choices.push_back(display.id);
+        }
         auto at = std::find(choices.begin(), choices.end(), settings_.display);
         int index = at == choices.end() ? 0 : static_cast<int>(at - choices.begin());
         index = (index + step + static_cast<int>(choices.size())) % static_cast<int>(choices.size());
         settings_.display = choices[static_cast<std::size_t>(index)];
-        if (settings_.display != "auto") moveToDisplay(settings_.display);
+        placeWindow();
         break;
     }
     case rowPort: settings_.joyPort = settings_.joyPort == 2 ? 1 : 2; break;
@@ -855,8 +868,15 @@ void App::launch() {
 // The screen the launcher is on, so the emulator opens there too
 std::string App::targetConnector() const {
     const std::string connector = connectorOf(SDL_GetWindowDisplayIndex(window_));
-    if (!connector.empty() || settings_.display == "auto") return connector;
-    return settings_.display;
+    return connector.empty() ? preferredConnector(settings_.display) : connector;
+}
+
+void App::placeWindow() {
+    const std::string connector = preferredConnector(settings_.display);
+    if (connector.empty()) return;
+    // SDL reads it again when screens come and go
+    setenv("SDL_VIDEO_DISPLAY_PRIORITY", connector.c_str(), 1);
+    moveToDisplay(connector);
 }
 
 void App::moveToDisplay(const std::string &connector) {
@@ -884,6 +904,8 @@ void App::finished() {
     running_ = false;
     prompt_ = viewDown_ = false;
     SDL_ShowWindow(window_);
+    // The screens may have changed meanwhile (a dock that restarted)
+    placeWindow();
     SDL_RaiseWindow(window_);
     stickX_ = stickY_ = 0;
     // A screenshot taken in the game is its picture in the list now
@@ -1094,6 +1116,11 @@ int App::run() {
                 break;
             case SDL_DISPLAYEVENT:
                 displays_ = displays();
+                // Back to the chosen monitor when it comes back (a dock that
+                // restarts drops its screens for a moment, and names them anew)
+                if (!running_ && (event.display.event == SDL_DISPLAYEVENT_CONNECTED ||
+                                  event.display.event == SDL_DISPLAYEVENT_DISCONNECTED))
+                    placeWindow();
                 break;
             case SDL_RENDER_TARGETS_RESET:
             case SDL_RENDER_DEVICE_RESET:
@@ -1437,11 +1464,11 @@ void App::drawSettings() {
     const Pad *active = pads_.active(settings_.pad);
     auto padText = [&] { return settings_.pad == "auto" ? std::string("Automatisch (zuletzt benutzt)") : settings_.pad; };
     auto displayText = [&] {
-        if (settings_.display == "auto") return std::string("Wo RetroDeck geöffnet wurde");
+        if (settings_.display == "auto") return std::string("Hauptbildschirm");
         for (const Display &display : displays_) {
-            if (display.connector == settings_.display) return display.name + " · " + display.connector;
+            if (display.id == settings_.display) return display.name + " · " + display.connector;
         }
-        return settings_.display + " (nicht verbunden)";
+        return std::string("Nicht verbunden – Hauptbildschirm");
     };
     const std::array<std::pair<std::string, std::string>, rowCount> rows{{
         {"Controller", padText()},

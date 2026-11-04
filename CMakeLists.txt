@@ -14,6 +14,8 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
 find_package(ZLIB REQUIRED)
+# KDE's main screen under Wayland (kde_output_order_v1); without it SDL's first
+pkg_check_modules(WAYLAND IMPORTED_TARGET wayland-client)
 
 # Text, shapes and images, shared by both programs
 add_library(rdcommon STATIC src/common/font.cpp src/common/draw.cpp)
@@ -30,6 +32,10 @@ add_executable(retrodeck
     src/launcher/displays.cpp
     src/launcher/emulators.cpp)
 target_link_libraries(retrodeck PRIVATE rdcommon ZLIB::ZLIB)
+if(WAYLAND_FOUND)
+    target_link_libraries(retrodeck PRIVATE PkgConfig::WAYLAND)
+    target_compile_definitions(retrodeck PRIVATE RD_WAYLAND)
+endif()
 target_compile_options(retrodeck PRIVATE -Wall -Wextra)
 
 # The Amiga front end on the vAmiga core (toolchain/setup.sh vamiga)
