@@ -288,6 +288,9 @@ if want xemu; then
     #                              read the D81's buffer instead)
     #   xemu-retrodeck-f12         F12 asks RetroDeck (RETRODECK_PID) whether
     #                              to end the game
+    #   xemu-retrodeck-gamepad     only the pad RetroDeck chose (RETRODECK_PAD)
+    #                              plays, its left stick and D-pad together
+    #                              (a stick's wobble ended the D-pad's direction)
     #   xemu-retrodeck-screenshot  Print, Shift+F12 and SIGUSR2 (RetroDeck's
     #                              View + X) save the picture to
     #                              RETRODECK_SCREENSHOT

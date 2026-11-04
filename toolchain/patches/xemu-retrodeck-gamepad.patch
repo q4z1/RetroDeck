@@ -1,0 +1,119 @@
+diff --git a/xemu/emutools_hid.c b/xemu/emutools_hid.c
+--- a/xemu/emutools_hid.c
++++ b/xemu/emutools_hid.c
+@@ -53,6 +53,17 @@
+ 
+ static SDL_Joystick *joysticks[MAX_JOYSTICKS];
+ 
++// RETRODECK_PAD: the index of the one game controller to play with (RetroDeck
++// passes the pad in use). Its directions come from the left stick and the
++// D-pad together, its fire from A and B, read as SDL's game controller sees
++// them; all other joysticks are left out. Without it, every joystick's every
++// event overwrites the one state: a stick's slight wobble near the middle
++// ended a direction the D-pad still held, any button's release the fire
++// another one still held.
++static int retrodeck_pad_index = -1;
++static SDL_GameController *retrodeck_pad = NULL;
++static SDL_JoystickID retrodeck_pad_id = -1;
++
+ #define JOYSTATE_UP			 1
+ #define JOYSTATE_DOWN			 2
+ #define JOYSTATE_LEFT			 4
+@@ -434,6 +445,8 @@
+ 	virtual_shift_pos = virtual_shift_pos_in;
+ 	SDL_GameControllerEventState(SDL_DISABLE);
+ 	SDL_JoystickEventState(joy_enable);
++	if (getenv("RETRODECK_PAD") && *getenv("RETRODECK_PAD"))
++		retrodeck_pad_index = atoi(getenv("RETRODECK_PAD"));
+ 	hid_reset_events(0);
+ 	for (int a = 0; a < MAX_JOYSTICKS; a++)
+ 		joysticks[a] = NULL;
+@@ -465,8 +478,56 @@
+ }
+ 
+ 
++static void hid_retrodeck_pad_update ( void )
++{
++	unsigned int state = 0;
++	if (retrodeck_pad) {
++		SDL_GameController *pad = retrodeck_pad;
++		const int x = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX);
++		const int y = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY);
++		if (y < -14000 || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP))
++			state |= JOYSTATE_UP;
++		else if (y > 14000 || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN))
++			state |= JOYSTATE_DOWN;
++		if (x < -14000 || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT))
++			state |= JOYSTATE_LEFT;
++		else if (x > 14000 || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT))
++			state |= JOYSTATE_RIGHT;
++		if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A) || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_B))
++			state |= JOYSTATE_BUTTON;
++	}
++	hid_state = (hid_state & ~(JOYSTATE_UP | JOYSTATE_DOWN | JOYSTATE_LEFT | JOYSTATE_RIGHT | JOYSTATE_BUTTON)) | state;
++}
++
++
++// SDL_JOYDEVICEADDED (`which`: the device index) and SDL_JOYDEVICEREMOVED
++// (`which`: the instance ID) for RETRODECK_PAD; false when it is not set
++static int hid_retrodeck_pad_device_event ( int which, int is_attach )
++{
++	if (retrodeck_pad_index < 0)
++		return 0;
++	if (is_attach && which == retrodeck_pad_index && !retrodeck_pad) {
++		retrodeck_pad = SDL_GameControllerOpen(which);
++		if (retrodeck_pad) {
++			retrodeck_pad_id = SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(retrodeck_pad));
++			DEBUGPRINT("HID: RetroDeck's game controller #%d \"%s\" plays." NL, which, SDL_GameControllerName(retrodeck_pad));
++		} else
++			DEBUGPRINT("HID: RetroDeck's game controller #%d cannot be opened: %s" NL, which, SDL_GetError());
++	} else if (!is_attach && retrodeck_pad && which == retrodeck_pad_id) {
++		SDL_GameControllerClose(retrodeck_pad);
++		retrodeck_pad = NULL;
++		retrodeck_pad_id = -1;
++		DEBUGPRINT("HID: RetroDeck's game controller has been removed." NL);
++	}
++	hid_retrodeck_pad_update();
++	return 1;
++}
++
++
+ void hid_joystick_device_event ( int which , int is_attach )
+ {
++	if (hid_retrodeck_pad_device_event(which, is_attach))
++		return;
+ 	if (which >= MAX_JOYSTICKS)
+ 		return;
+ 	if (is_attach) {
+@@ -681,14 +742,25 @@
+ 			break;
+ 		case SDL_JOYBUTTONDOWN:
+ 		case SDL_JOYBUTTONUP:
+-			hid_joystick_button_event(event->type == SDL_JOYBUTTONDOWN);
+-			break;
+ 		case SDL_JOYHATMOTION:
+-			hid_joystick_hat_event(event->jhat.value);
+-			break;
+ 		case SDL_JOYAXISMOTION:
+-			if (event->jaxis.axis < 2)
+-				hid_joystick_motion_event(event->jaxis.axis, event->jaxis.value);
++			if (retrodeck_pad_index >= 0) {
++				const SDL_JoystickID which = event->type == SDL_JOYAXISMOTION ? event->jaxis.which :
++					event->type == SDL_JOYHATMOTION ? event->jhat.which : event->jbutton.which;
++				if (retrodeck_pad && which == retrodeck_pad_id)
++					hid_retrodeck_pad_update();
++				break;
++			}
++			if (event->type == SDL_JOYHATMOTION) {
++				hid_joystick_hat_event(event->jhat.value);
++				break;
++			}
++			if (event->type == SDL_JOYAXISMOTION) {
++				if (event->jaxis.axis < 2)
++					hid_joystick_motion_event(event->jaxis.axis, event->jaxis.value);
++				break;
++			}
++			hid_joystick_button_event(event->type == SDL_JOYBUTTONDOWN);
+ 			break;
+ 		case SDL_MOUSEMOTION:
+ #ifdef			XEMU_OSK_SUPPORT

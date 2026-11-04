@@ -400,6 +400,8 @@ Launch planLaunch(const Game &game, const std::vector<fs::path> &media, const Se
             launch.argv.insert(launch.argv.end(), {"-hdosvirt", "-hdosdir", sd.string()});
         if (extension == ".prg") launch.argv.insert(launch.argv.end(), {"-prg", first.string()});
         else launch.argv.insert(launch.argv.end(), {"-8", first.string(), "-autoload"});
+        // Only the pad in use, as SDL's game controller (patches/xemu-retrodeck-gamepad.patch)
+        if (pad && view.index >= 0) launch.env.emplace_back("RETRODECK_PAD", std::to_string(view.index));
         // Xemu's menu is a GTK popup, which only shows over the SDL window with X11
         if (std::getenv("DISPLAY")) launch.env.emplace_back("GDK_BACKEND", "x11");
         launch.audioApp = "xmega65";
