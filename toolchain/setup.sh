@@ -293,6 +293,11 @@ if want xemu; then
     #                              RETRODECK_SCREENSHOT
     #   xemu-retrodeck-video       Ctrl+F12 starts or stops RetroDeck's
     #                              recording (SIGUSR2 to RETRODECK_PID)
+    #   xemu-rrb-transparent-fg    a character's transparent pixel (after a
+    #                              GOTOX with bit 7) leaves the foreground
+    #                              below it, so sprites behind the background
+    #                              stay hidden there (Zak McKracken's actors
+    #                              stood in black boxes)
     s=$(stamp "$XEMU_COMMIT" "$HERE"/patches/xemu-*.patch)
     if ! up_to_date "$HERE/bin/xmega65" "$s"; then
         step "Xemu (MEGA65)"
