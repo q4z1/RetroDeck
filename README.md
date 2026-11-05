@@ -311,6 +311,13 @@ to mount itself. Zak McKracken (MEGASPUTM) mounts `zak2.d81` and keeps its
 saved games on `zaksaves.d81`; they stay in the unpacked folder until the ZIP
 is replaced.
 
+A D81 starts with its first program (`-autoload`), unless it holds one
+named `…-XEMU`, made for the emulator: that one is copied to
+`~/.cache/retrodeck/mega65-xemu/` and loaded straight into memory (`-prg`),
+with the D81 in drive 8 for the files it loads. MEGATRO2 has such a
+program beside the one for the real machine, whose raster bars and scroller
+come out wrong in Xemu.
+
 Xemu's virtual readfile put the data into the SD-card buffer but left the
 F011 buffer mapped at `$DE00`, so Space Commander read the D81's sector
 instead and reported a wrong `SPACE.SCP`; `patches/xemu-hdos-readfile-buffer.patch`

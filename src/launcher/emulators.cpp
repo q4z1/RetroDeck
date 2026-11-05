@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <sstream>
 
@@ -106,6 +107,68 @@ fs::path sdFolder(const fs::path &dir) {
         }
     }
     return folder;
+}
+
+// A program on a D81 meant for Xemu, named "...-XEMU" (MEGATRO2 has its
+// own beside the one for the real machine, which draws its raster bars and
+// scroller wrong in Xemu), copied into the cache as a PRG. Empty if there
+// is none.
+fs::path xemuProgram(const fs::path &d81) {
+    std::ifstream in(d81, std::ios::binary);
+    std::vector<unsigned char> disk((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    if (disk.size() != 819200) return {};
+    // 80 tracks of 40 sectors, counted from 1 and 0
+    auto sector = [&](int track, int number) -> const unsigned char * {
+        if (track < 1 || track > 80 || number < 0 || number > 39) return nullptr;
+        return &disk[((track - 1) * 40 + number) * 256];
+    };
+    // The directory from track 40, sector 3, eight entries of 32 bytes per sector
+    int track = 40, number = 3;
+    for (int sectors = 0; track && sectors < 40; ++sectors) {
+        const unsigned char *block = sector(track, number);
+        if (!block) return {};
+        for (int i = 0; i < 8; ++i) {
+            const unsigned char *entry = block + i * 32;
+            if ((entry[2] & 0x87) != 0x82) continue; // a closed PRG
+            std::string name(reinterpret_cast<const char *>(entry + 5), 16);
+            name.erase(name.find_last_not_of('\xa0') + 1);
+            if (name.size() <= 5 || name.compare(name.size() - 5, 5, "-XEMU") != 0) continue;
+            std::vector<unsigned char> program;
+            int fileTrack = entry[3], fileSector = entry[4];
+            for (int blocks = 0; fileTrack && blocks < 3200; ++blocks) {
+                const unsigned char *data = sector(fileTrack, fileSector);
+                if (!data) return {};
+                // The last sector: track 0, then the index of its last byte
+                const int end = data[0] ? 256 : std::max(2, data[1] + 1);
+                program.insert(program.end(), data + 2, data + end);
+                fileTrack = data[0];
+                fileSector = data[1];
+            }
+            if (fileTrack || program.size() < 3) return {};
+            std::error_code error;
+            const fs::path folder = cacheDir() / "mega65-xemu";
+            fs::create_directories(folder, error);
+            const fs::path prg = folder / (std::to_string(std::hash<std::string>{}(d81.string())) + "-" + lower(name) + ".prg");
+            std::ofstream out(prg, std::ios::binary | std::ios::trunc);
+            out.write(reinterpret_cast<const char *>(program.data()), static_cast<std::streamsize>(program.size()));
+            return out ? prg : fs::path{};
+        }
+        track = block[0];
+        number = block[1];
+    }
+    return {};
+}
+
+// What Xemu starts: a PRG straight into memory; a D81 in drive 8, with its
+// first program, or with its "-XEMU" program loaded straight into memory
+void addMega65Program(std::vector<std::string> &argv, const fs::path &first, const std::string &extension) {
+    if (extension == ".prg") {
+        argv.insert(argv.end(), {"-prg", first.string()});
+    } else if (const fs::path prg = xemuProgram(first); !prg.empty()) {
+        argv.insert(argv.end(), {"-8", first.string(), "-prg", prg.string()});
+    } else {
+        argv.insert(argv.end(), {"-8", first.string(), "-autoload"});
+    }
 }
 
 // YapeSDL takes a controller's right stick (and its D-pad) as the joystick:
@@ -398,8 +461,7 @@ Launch planLaunch(const Game &game, const std::vector<fs::path> &media, const Se
         // Hyppo's file functions see the game's folder instead of the SD image
         if (const fs::path sd = sdFolder(first.parent_path()); !sd.empty())
             launch.argv.insert(launch.argv.end(), {"-hdosvirt", "-hdosdir", sd.string()});
-        if (extension == ".prg") launch.argv.insert(launch.argv.end(), {"-prg", first.string()});
-        else launch.argv.insert(launch.argv.end(), {"-8", first.string(), "-autoload"});
+        addMega65Program(launch.argv, first, extension);
         // Only the pad in use, as SDL's game controller (patches/xemu-retrodeck-gamepad.patch)
         if (pad && view.index >= 0) launch.env.emplace_back("RETRODECK_PAD", std::to_string(view.index));
         // Xemu's menu is a GTK popup, which only shows over the SDL window with X11
@@ -489,8 +551,7 @@ Launch planScreenshot(const Game &game, const std::vector<fs::path> &media, cons
                        "-headless", "-sleepless", "-besure", "-screenshot", png.string()};
         if (const fs::path sd = sdFolder(first.parent_path()); !sd.empty())
             launch.argv.insert(launch.argv.end(), {"-hdosvirt", "-hdosdir", sd.string()});
-        if (extension == ".prg") launch.argv.insert(launch.argv.end(), {"-prg", first.string()});
-        else launch.argv.insert(launch.argv.end(), {"-8", first.string(), "-autoload"});
+        addMega65Program(launch.argv, first, extension);
         launch.timeout = seconds;
         break;
     case System::amiga:
