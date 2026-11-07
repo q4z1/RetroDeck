@@ -301,7 +301,8 @@ READMEs say to copy both onto the card. RetroDeck does without that: it
 starts Xemu with `-hdosvirt -hdosdir <folder>`, so that Hyppo's file
 functions see a folder on the PC as the card. That folder is
 `~/.cache/retrodeck/mega65-sd/<game>/`, with a link to every file beside the
-D81 (or in its ZIP, which is unpacked whole), also under its name in lower
+D81 (or in its ZIP, which is unpacked whole – but for what is there for
+people: PDFs, ePubs, music and pictures, 147 MB with Paradroid 65), also under its name in lower
 case – the MEGA65 asks for `space.scp`, and Linux tells that apart from
 `SPACE.SCP`. Files a game writes there stay in that folder.
 
@@ -310,6 +311,12 @@ the first D81 by name; the others lie beside it on the card, for the game
 to mount itself. Zak McKracken (MEGASPUTM) mounts `zak2.d81` and keeps its
 saved games on `zaksaves.d81`; they stay in the unpacked folder until the ZIP
 is replaced.
+
+A ZIP may hold a D81 for the real machine and one made for Xemu, named
+`…_XEMU.d81` (or `-XEMU`, ` XEMU`): the Xemu one is the game, its twin with
+the same name before the last `_`, `-` or space is left out. Paradroid 65
+has `PARADROID65_MEGA65.d81` and `PARADROID65_XEMU.d81`, the latter with a
+border effect below the status line and the SID channels as Xemu shows them.
 
 A D81 starts with its first program (`-autoload`), unless it holds one
 named `…-XEMU`, made for the emulator: that one is copied to

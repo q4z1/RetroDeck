@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <functional>
 #include <map>
@@ -274,6 +275,13 @@ fs::path findArtwork(const fs::path &dir, const std::string &stem) {
     return {};
 }
 
+// What a ZIP brings along for people, not for the emulator: manuals,
+// soundtracks, pictures (Paradroid 65's Collector's Edition: 147 MB)
+bool forPeople(const std::string &name) {
+    static const std::set<std::string> kinds{".pdf", ".epub", ".flac", ".mp3", ".ogg", ".m3u", ".m3u8", ".jpg", ".jpeg"};
+    return kinds.count(lower(fs::path(name).extension().string())) > 0;
+}
+
 struct Candidate {
     fs::path file;      // on disk, or the name inside the archive
     fs::path archive;
@@ -349,6 +357,35 @@ Library scanLibrary(const fs::path &root, const fs::path &config) {
         for (const std::string &group : order) {
             auto &disks = groups[group];
             std::stable_sort(disks.begin(), disks.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
+            // A D81 made for Xemu in a MEGA65 ZIP ("PARADROID65_XEMU.d81") is
+            // the one played: its twin for the real machine
+            // ("PARADROID65_MEGA65.d81") is left out, the game is named after the ZIP
+            bool twinLeftOut = false;
+            if (entry.system == System::mega65 && !disks.front().second.archive.empty()) {
+                // "PARADROID65" for "PARADROID65_XEMU.d81", empty for others
+                auto xemuBase = [](const Candidate &disk) -> std::string {
+                    const std::string stem = upper(disk.file.stem().string());
+                    if (lower(disk.file.extension().string()) != ".d81" || stem.size() < 6 ||
+                        stem.compare(stem.size() - 4, 4, "XEMU") != 0 || !std::strchr("_- ", stem[stem.size() - 5]))
+                        return {};
+                    return stem.substr(0, stem.size() - 5);
+                };
+                for (const auto &disk : disks) {
+                    const std::string base = xemuBase(disk.second);
+                    if (base.empty()) continue;
+                    const fs::path xemu = disk.second.file;
+                    const auto twin = [&](const auto &other) {
+                        const std::string stem = upper(other.second.file.stem().string());
+                        return other.second.file != xemu && lower(other.second.file.extension().string()) == ".d81" &&
+                               stem.size() > base.size() + 1 && stem.compare(0, base.size(), base) == 0 &&
+                               std::strchr("_- ", stem[base.size()]);
+                    };
+                    const auto before = disks.size();
+                    disks.erase(std::remove_if(disks.begin(), disks.end(), twin), disks.end());
+                    twinLeftOut = disks.size() != before;
+                    break;
+                }
+            }
             // A MEGA65 game's ZIP is unpacked whole, its D81s side by side on
             // the card: several are one game (Zak McKracken's zak1, zak2 and
             // zaksaves.d81), named after the ZIP, started from the first D81
@@ -382,10 +419,10 @@ Library scanLibrary(const fs::path &root, const fs::path &config) {
                 std::string stem = group.substr(group.find('\n') + 1);
                 // The game file's name, also in a ZIP ("space-commander.d81"
                 // says more than "space_commander_v1_3.zip")
-                if (!multiDisk) stem = first.file.stem().string();
+                if (!multiDisk && !twinLeftOut) stem = first.file.stem().string();
                 // An 8.3 name cut from its folder's or its ZIP's
                 // ("anotherw.d81" in AnotherWorld/): those say it better
-                if (!multiDisk && stem.size() == 8) {
+                if (!multiDisk && !twinLeftOut && stem.size() == 8) {
                     std::vector<std::string> names;
                     if (first.archive.empty()) {
                         if (first.file.parent_path() != entry.path) names.push_back(first.file.parent_path().filename().string());
@@ -459,6 +496,7 @@ std::vector<fs::path> mediaFiles(const Game &game, const fs::path &cacheDir, std
     // their disks (data files a MEGA65 game loads from the SD card). Inside
     // the cache, files keep their names (emulators show them).
     for (const zip::Entry &entry : zip::list(game.archive)) {
+        if (forPeople(entry.name)) continue;
         const fs::path out = target / fs::path(entry.name).filename();
         if (fs::exists(out, ignored)) continue;
         if (!zip::extract(game.archive, entry, out)) {
