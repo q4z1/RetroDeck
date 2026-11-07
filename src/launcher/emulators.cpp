@@ -294,6 +294,43 @@ void writePlus4emuConfig(const fs::path &file, const fs::path &roms, SDL_GameCon
     for (int i = 0; i < 5; ++i) key(other[i], 1, -1);
 }
 
+// A PC game's arguments: those in <program>.args beside it (words, "..."
+// for one with spaces, # for a comment; an empty file: none), else
+// --fullscreen
+std::vector<std::string> pcArguments(const fs::path &program) {
+    fs::path file = program;
+    file.replace_extension(".args");
+    std::ifstream in(file);
+    if (!in) return {"--fullscreen"};
+    std::vector<std::string> args;
+    for (std::string line; std::getline(in, line);) {
+        if (const auto hash = line.find('#'); hash != std::string::npos) line.erase(hash);
+        std::istringstream words(line);
+        while (words >> std::ws && words.peek() != EOF) {
+            std::string word;
+            if (words.peek() == '"') {
+                words.get();
+                std::getline(words, word, '"');
+            } else {
+                words >> word;
+            }
+            args.push_back(word);
+        }
+    }
+    return args;
+}
+
+// The game's program and how it is started, the same for playing and
+// for its screenshot
+void planPc(Launch &launch, const Game &game, const fs::path &program) {
+    launch.argv = {program.string()};
+    for (std::string &arg : pcArguments(program)) launch.argv.push_back(std::move(arg));
+    // Games look for their files beside them, many from where they run
+    launch.workingDir = program.parent_path();
+    // Its sound in PipeWire: games name it after themselves ("Two Planets")
+    launch.audioApp = game.title;
+}
+
 } // namespace
 
 Toolchain Toolchain::locate(const fs::path &root, const fs::path &launcherDir, const std::vector<fs::path> &amigaFolders) {
@@ -342,6 +379,8 @@ std::string Toolchain::missing(System system, const Settings &settings) const {
     case System::mega65:
         if (!executable(xmega65)) return "Xemu fehlt – toolchain/setup.sh xemu";
         return fs::exists(mega65Rom) ? "" : "MEGA65.ROM fehlt – toolchain/setup.sh rom";
+    case System::pc:
+        return {}; // the game brings its program
     }
     return {};
 }
@@ -355,6 +394,7 @@ std::string Toolchain::emulatorName(System system, const Settings &settings) con
     case System::c64: return "VICE · x64sc";
     case System::amiga: return settings.amigaModel == "A500_ECS_1MB" ? "vAmiga · A500 ECS" : "vAmiga · A500 OCS";
     case System::mega65: return "Xemu · xmega65";
+    case System::pc: return "keiner, läuft direkt";
     }
     return {};
 }
@@ -475,6 +515,18 @@ Launch planLaunch(const Game &game, const std::vector<fs::path> &media, const Se
         for (const fs::path &disk : media) launch.argv.push_back(disk.string());
         launch.audioApp = "retrodeck-amiga";
         break;
+    case System::pc:
+        // Like RetroDeck's emulators it reads RETRODECK_PID (F12: end it?,
+        // Ctrl+F12: record), RETRODECK_SCREENSHOT (Print, Shift+F12, and
+        // SIGUSR2 for View + X) and RETRODECK_PAD (the one pad to play with)
+        if (!executable(first)) {
+            error = "Nicht ausführbar: " + first.string();
+            launch.argv.clear();
+            return launch;
+        }
+        planPc(launch, game, first);
+        if (pad && view.index >= 0) launch.env.emplace_back("RETRODECK_PAD", std::to_string(view.index));
+        break;
     default:
         break;
     }
@@ -504,6 +556,7 @@ int screenshotSeconds(System system) {
     case System::c64: return 25;
     case System::amiga: return 40;
     case System::mega65: return 30;
+    case System::pc: return 8;
     }
     return 30;
 }
@@ -561,6 +614,14 @@ Launch planScreenshot(const Game &game, const std::vector<fs::path> &media, cons
         for (const fs::path &disk : media) launch.argv.push_back(disk.string());
         launch.timeout = seconds + 30;
         break;
+    case System::pc:
+        // In real time, without a screen; after `seconds` it is asked for
+        // its picture (SIGUSR2, as View + X does), then stopped
+        planPc(launch, game, first);
+        launch.env.emplace_back("RETRODECK_SCREENSHOT", png.string());
+        launch.shotAfter = seconds;
+        launch.timeout = seconds + 3;
+        break;
     }
     return launch;
 }
@@ -593,6 +654,7 @@ bool Process::start(const Launch &launch, const fs::path &log, std::string &erro
     posix_spawn_file_actions_init(&actions);
     posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
     posix_spawn_file_actions_adddup2(&actions, STDOUT_FILENO, STDERR_FILENO);
+    if (!launch.workingDir.empty()) posix_spawn_file_actions_addchdir_np(&actions, launch.workingDir.c_str());
     posix_spawnattr_t attributes;
     posix_spawnattr_init(&attributes);
     // A process group of its own, so that stop() reaches its children too

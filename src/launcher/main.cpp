@@ -94,6 +94,7 @@ SDL_Color accent(System system) {
     case System::c64: return {132, 146, 255, 255};
     case System::amiga: return {236, 84, 88, 255};
     case System::mega65: return {61, 214, 181, 255};
+    case System::pc: return {176, 132, 240, 255};
     }
     return ink;
 }
@@ -127,9 +128,9 @@ private:
     Toolchain toolchain_;
     Settings settings_;
     Library library_;
-    std::array<std::vector<int>, 4> lists_;
-    std::array<int, 4> selected_{};
-    std::array<float, 4> scroll_{};
+    std::array<std::vector<int>, allSystems.size()> lists_;
+    std::array<int, allSystems.size()> selected_{};
+    std::array<float, allSystems.size()> scroll_{};
     int system_ = 0;
     Screen screen_ = Screen::library;
     int settingsRow_ = 0;
@@ -331,7 +332,7 @@ bool App::init(int argc, char **argv) {
 
     for (int i = 0; i < SDL_NumJoysticks(); ++i) pads_.open(i);
     displays_ = displays();
-    system_ = std::clamp(startSystem >= 0 ? startSystem : settings_.lastSystem, 0, 3);
+    system_ = std::clamp(startSystem >= 0 ? startSystem : settings_.lastSystem, 0, static_cast<int>(allSystems.size()) - 1);
     rescan();
     if (startSelect >= 0) selected_[static_cast<std::size_t>(system_)] = startSelect;
     if (startScreen == "settings") screen_ = Screen::settings;
@@ -414,8 +415,19 @@ void App::makeScreenshots(bool onlySelected) {
             continue;
         }
         const Uint32 started = SDL_GetTicks();
+        bool asked = false;
         while (process.running()) {
-            if (plan.timeout > 0 && SDL_GetTicks() - started > static_cast<Uint32>(plan.timeout) * 1000) process.stop();
+            const Uint32 elapsed = SDL_GetTicks() - started;
+            if (plan.timeout > 0 && elapsed > static_cast<Uint32>(plan.timeout) * 1000) process.stop();
+            // A PC game saves its picture when asked (as for View + X), and
+            // is stopped once it is there
+            if (plan.shotAfter > 0 && !asked && elapsed > static_cast<Uint32>(plan.shotAfter) * 1000) {
+                process.send(SIGUSR2);
+                asked = true;
+            } else if (asked && fs::exists(png, ignored)) {
+                SDL_Delay(200); // written to the end
+                process.stop();
+            }
             SDL_Delay(100);
         }
         if (fs::exists(png, ignored)) std::printf("%s\n", png.c_str());
@@ -595,7 +607,8 @@ void App::moveSelection(int delta) {
 }
 
 void App::changeSystem(int delta) {
-    system_ = (system_ + delta + 4) % 4;
+    const int count = static_cast<int>(allSystems.size());
+    system_ = (system_ + delta + count) % count;
     selectedAt_ = SDL_GetTicks();
 }
 
@@ -699,7 +712,8 @@ std::vector<GameRow> gameRows(System system) {
         return {GameRow::emulator, GameRow::joyPort, GameRow::loadTurbo, GameRow::screenshot, GameRow::reset};
     case System::c64: return {GameRow::joyPort, GameRow::loadTurbo, GameRow::screenshot, GameRow::reset};
     case System::amiga: return {GameRow::amigaModel, GameRow::loadTurbo, GameRow::screenshot, GameRow::reset};
-    case System::mega65: return {GameRow::screenshot, GameRow::reset};
+    case System::mega65:
+    case System::pc: return {GameRow::screenshot, GameRow::reset};
     }
     return {GameRow::reset};
 }
@@ -1297,9 +1311,11 @@ void App::drawList(SDL_Rect area) {
         fillRounded(renderer_, {area.x, area.y, area.w, S(200)}, S(16), withAlpha(panel, 200));
         fonts_->draw(semi_, S(26), area.x + S(32), area.y + S(36), std::string("Keine Spiele für ") + systemName(system()), ink);
         int y = area.y + S(84);
-        static const char *const folders[] = {"Plus4", "C64", "Amiga", "MEGA65"};
-        const std::string help = std::string("Lege Spiele in ~/Games/Retro/") + folders[system_] +
-                                 "/ ab (oder trage Ordner in library.conf ein). Dann im Menü „Bibliothek neu einlesen“.";
+        static const char *const folders[] = {"Plus4", "C64", "Amiga", "MEGA65", "PC"};
+        static_assert(std::size(folders) == allSystems.size());
+        const std::string help = std::string("Lege Spiele in ~/Games/Retro/") + folders[system_] + "/ ab" +
+                                 (system() == System::pc ? ", jedes in einem Ordner mit einem Programm, das heißt wie er" : "") +
+                                 " (oder trage Ordner in library.conf ein). Dann im Menü „Bibliothek neu einlesen“.";
         for (const std::string &line : fonts_->wrap(body_, S(19), help, area.w - S(64))) {
             fonts_->draw(body_, S(19), area.x + S(32), y, line, muted);
             y += S(28);

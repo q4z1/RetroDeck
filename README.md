@@ -1,7 +1,7 @@
 # RetroDeck
 
-A launcher for **Plus/4**, **C64**, **Amiga** and **MEGA65** games, made for
-the Steam Deck: pick a game with the controller, it starts fullscreen in its
+A launcher for **Plus/4**, **C64**, **Amiga** and **MEGA65** games, and for
+native Linux games (**PC**), made for the Steam Deck: pick a game with the controller, it starts fullscreen in its
 emulator, and **View** asks whether to end it and go back. It runs in Steam's Game
 Mode and on the desktop, on the Deck's own screen (1280×800) and on an
 external one (1920×1080); the layout scales to whatever screen it gets.
@@ -21,6 +21,7 @@ nothing is installed on the system.
 | C64 | VICE 3.10 `x64sc` | `toolchain/vice/` |
 | Amiga | `retrodeck-amiga`: RetroDeck's own front end on the vAmiga core, A500 with your Kickstart 1.3 | `build/bin/`, core in `toolchain/src/vAmiga`, Kickstart in the Amiga games folder |
 | MEGA65 | Xemu `xmega65` (our fork) with the MEGA65 ROM 920413 | `toolchain/bin/xmega65` |
+| PC | none: the game's own Linux program (see [PC games](#pc-games)) | the games folder |
 
 ## Building
 
@@ -185,7 +186,8 @@ It records with [gpu-screen-recorder](https://repo.dec05eba.com/gpu-screen-recor
 from the toolchain: the screen the game is on through KMS (`-w DP-3`, or
 the first screen), encoded on the GPU (VA-API), and the sound of the
 emulator's PipeWire stream alone (`-a app:<name>`: `VICE`, `yapesdl`,
-`PipeWire ALSA [plus4emu]`, `xmega65`, `retrodeck-amiga`). Reading the
+`PipeWire ALSA [plus4emu]`, `xmega65`, `retrodeck-amiga`, a PC game's
+title). Reading the
 screen through KMS takes `gsr-kms-server` a capability, set once as root –
 without it, it asks for the password on every recording, which nobody
 answers in Game Mode; `setup.sh` prints the line when it is missing:
@@ -248,7 +250,7 @@ steps through its own values; *Alles auf Vorgabe* clears them.
 | Plus/4-Emulator | Plus/4 | VICE, YapeSDL or plus4emu |
 | Joystick-Port | C64, Plus/4 | port 1 or 2 (Boulder Dash reads port 1) |
 | Amiga-Modell | Amiga | A500 OCS or ECS |
-| Turbo beim Laden | all but MEGA65 | yes or no (no for a game whose music plays while it loads) |
+| Turbo beim Laden | Plus/4, C64, Amiga | yes or no (no for a game whose music plays while it loads) |
 | Screenshot nach | all | seconds until its title, for `--make-screenshots` |
 
 They are kept in `~/.config/retrodeck/games.conf`, under the game's file
@@ -330,6 +332,29 @@ F011 buffer mapped at `$DE00`, so Space Commander read the D81's sector
 instead and reported a wrong `SPACE.SCP`; `patches/xemu-hdos-readfile-buffer.patch`
 maps the SD-card buffer, as Hyppo does.
 
+## PC games
+
+A PC game is a native Linux program, started as it is, without an
+emulator: in the PC folder a folder of its own, with the program named like
+the folder (letters and digits compared, case aside: `two-planets/two-planets`,
+`TwoPlanets/TwoPlanets.x86_64`, `game/game.sh`) and whatever it needs beside
+it. The game is named after its folder ("Two Planets"), its size is all
+of the folder's. It runs in its folder, with `--fullscreen`; a file
+`<program>.args` beside the program says other arguments instead (words,
+`"…"` for one with spaces, `#` a comment; an empty one: none).
+
+To fit in, a game reads what RetroDeck's emulators read:
+
+| | |
+| --- | --- |
+| `RETRODECK_PID` | F12 sends the launcher `SIGUSR1` (end it?), Ctrl+F12 `SIGUSR2` (record) |
+| `RETRODECK_SCREENSHOT` | where Print, Shift+F12 and a `SIGUSR2` from the launcher (View + X) write a PNG |
+| `RETRODECK_PAD` | the index of the one controller to play with |
+
+and leaves View to the launcher. Its sound is recorded by the PipeWire
+stream named like its title. Two Planets (`~/Games/Retro/PC/two-planets`)
+does all of this.
+
 ## The games folder
 
 The games live in one folder, `~/Games/Retro`, with a folder per system:
@@ -339,7 +364,8 @@ The games live in one folder, `~/Games/Retro`, with a folder per system:
 ├── Plus4/     PRG D64 D81 T64 TAP
 ├── C64/       PRG D64 D71 D81 G64 T64 TAP CRT
 ├── Amiga/     ADF ADZ DMS – and your Kickstart ROM (a .rom or .bin with "kick" in its name)
-└── MEGA65/    PRG D81 – with the files a game loads from the SD card next to its D81
+├── MEGA65/    PRG D81 – with the files a game loads from the SD card next to its D81
+└── PC/        a folder per game, with its program named like the folder (two-planets/two-planets)
 ```
 
 All of them also inside ZIP archives, and in subfolders up to three levels
@@ -355,8 +381,8 @@ anywhere, e.g. on an SD card:
 ./make-games-folder.sh --use /run/media/deck/SD/Retro   # and library.conf points there
 ```
 
-`--use` replaces the folder in library.conf's lines for the four systems
-that end in `/Plus4`, `/C64`, `/Amiga` or `/MEGA65` (options like
+`--use` replaces the folder in library.conf's lines for the five systems
+that end in `/Plus4`, `/C64`, `/Amiga`, `/MEGA65` or `/PC` (options like
 `exclude=` stay); other lines stay as they are. Then Menu → *Bibliothek neu
 einlesen*.
 
@@ -370,6 +396,7 @@ plus4   ~/Games/Retro/Plus4
 c64     ~/Games/Retro/C64
 amiga   ~/Games/Retro/Amiga
 mega65  ~/Games/Retro/MEGA65
+pc      ~/Games/Retro/PC
 ```
 
 ZIP archives are looked into, unless they lie unpacked next to themselves
@@ -396,8 +423,10 @@ keeps its last picture in `~/.local/share/retrodeck/screenshots/<system>/<file>.
 which the list then shows (before a `<name>.png` or `screenshots/` folder
 beside the game). VICE (also for Plus/4 games) runs in warp for a number of
 cycles and writes the PRG straight into memory (`-autostartprgmode 1`), Xemu
-runs headless and as fast as it can, the Amiga in real time. The defaults
-are 25 s (C64, Plus/4), 30 s (MEGA65) and 40 s (Amiga); a game whose title is
+runs headless and as fast as it can, the Amiga in real time, a PC game in
+real time with SDL's offscreen video, asked for its picture by `SIGUSR2`
+at the end. The defaults
+are 25 s (C64, Plus/4), 30 s (MEGA65), 40 s (Amiga) and 8 s (PC); a game whose title is
 earlier or later, or comes and goes with a demo, gets its own time in its
 options (*Screenshot nach*; Paradroid: 9 s), and `--seconds` overrides all. Titles behind a question (Another World's code wheel) are
 out of reach this way: there, take one in the game (View + X, Print or

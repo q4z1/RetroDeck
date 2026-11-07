@@ -33,7 +33,9 @@ struct Launch {
     std::vector<std::string> argv;
     std::vector<std::pair<std::string, std::string>> env;
     int timeout = 0;       // seconds after which it is stopped; 0: none
+    int shotAfter = 0;     // seconds after which it is asked for its screenshot (SIGUSR2); 0: none
     std::string audioApp;  // its sound in PipeWire (application.name)
+    fs::path workingDir;   // where it runs; empty: where the launcher does
 };
 
 // Empty argv (and error set) if the game cannot be started. `connector`

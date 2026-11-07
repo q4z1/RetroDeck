@@ -3,6 +3,7 @@
 #include "zip.h"
 
 #include <fnmatch.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <cctype>
@@ -47,11 +48,13 @@ const std::vector<std::string> &extensions(System system) {
     static const std::vector<std::string> c64{".prg", ".d64", ".d71", ".d81", ".g64", ".t64", ".tap", ".crt"};
     static const std::vector<std::string> amiga{".adf", ".adz", ".dms"};
     static const std::vector<std::string> mega65{".prg", ".d81"};
+    static const std::vector<std::string> none;
     switch (system) {
     case System::plus4: return plus4;
     case System::c64: return c64;
     case System::amiga: return amiga;
     case System::mega65: return mega65;
+    case System::pc: return none; // programs, see pcProgram()
     }
     return c64;
 }
@@ -282,6 +285,42 @@ bool forPeople(const std::string &name) {
     return kinds.count(lower(fs::path(name).extension().string())) > 0;
 }
 
+// A PC game is a program named like its folder, with its files beside it:
+// two-planets/two-planets, TwoPlanets/TwoPlanets.x86_64, game/game.sh
+bool pcProgram(const fs::path &path) {
+    if (::access(path.c_str(), X_OK) != 0) return false;
+    const std::string name = compact(path.stem().string());
+    return !name.empty() && name == compact(path.parent_path().filename().string());
+}
+
+// "Linux · x86-64" for an ELF program, "Skript" for one starting with #!
+std::string pcFormat(const fs::path &program) {
+    std::ifstream in(program, std::ios::binary);
+    unsigned char head[20]{};
+    in.read(reinterpret_cast<char *>(head), sizeof head);
+    if (in.gcount() >= 2 && head[0] == '#' && head[1] == '!') return "Skript";
+    if (in.gcount() < 20 || std::memcmp(head, "\x7f" "ELF", 4) != 0) return "Programm";
+    const int machine = head[18] | head[19] << 8; // little endian, as on the Deck
+    switch (machine) {
+    case 62: return "Linux · x86-64";
+    case 3: return "Linux · x86";
+    case 183: return "Linux · ARM64";
+    }
+    return "Linux";
+}
+
+// All that lies in a folder, in bytes
+std::uintmax_t folderBytes(const fs::path &dir) {
+    std::uintmax_t bytes = 0;
+    std::error_code error;
+    for (auto it = fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, error);
+         !error && it != fs::recursive_directory_iterator(); it.increment(error)) {
+        std::error_code sizeError;
+        if (it->is_regular_file(sizeError) && !it->is_symlink(sizeError)) bytes += it->file_size(sizeError);
+    }
+    return bytes;
+}
+
 struct Candidate {
     fs::path file;      // on disk, or the name inside the archive
     fs::path archive;
@@ -296,6 +335,7 @@ const char *systemName(System system) {
     case System::c64: return "C64";
     case System::amiga: return "Amiga";
     case System::mega65: return "MEGA65";
+    case System::pc: return "PC";
     }
     return "";
 }
@@ -306,6 +346,7 @@ const char *systemId(System system) {
     case System::c64: return "c64";
     case System::amiga: return "amiga";
     case System::mega65: return "mega65";
+    case System::pc: return "pc";
     }
     return "";
 }
@@ -343,7 +384,10 @@ Library scanLibrary(const fs::path &root, const fs::path &config) {
         walk(entry.path, entry.depth, [&](const fs::path &path) {
             const std::string name = path.filename().string();
             if (excluded(entry, name)) return;
-            if (lower(path.extension().string()) == ".zip") {
+            if (entry.system == System::pc) {
+                // Its whole folder counts, the program is only a part
+                if (pcProgram(path)) add({path, {}, folderBytes(path.parent_path())});
+            } else if (lower(path.extension().string()) == ".zip") {
                 for (const zip::Entry &inside : zip::list(path)) {
                     const fs::path member(inside.name);
                     if (supported(entry.system, member) && !unpackedBeside(path, member, inside.size))
@@ -420,6 +464,8 @@ Library scanLibrary(const fs::path &root, const fs::path &config) {
                 // The game file's name, also in a ZIP ("space-commander.d81"
                 // says more than "space_commander_v1_3.zip")
                 if (!multiDisk && !twinLeftOut) stem = first.file.stem().string();
+                // A PC game by its folder ("Two Planets/" for "two-planets")
+                if (entry.system == System::pc) stem = first.file.parent_path().filename().string();
                 // An 8.3 name cut from its folder's or its ZIP's
                 // ("anotherw.d81" in AnotherWorld/): those say it better
                 if (!multiDisk && !twinLeftOut && stem.size() == 8) {
@@ -438,7 +484,8 @@ Library scanLibrary(const fs::path &root, const fs::path &config) {
                     }
                 }
                 describe(stem, game.title, game.details);
-                game.format = upper(first.file.extension().string().substr(1));
+                game.format = entry.system == System::pc ? pcFormat(first.file)
+                                                         : upper(first.file.extension().string().substr(1));
                 if (files.size() > 1) game.format += " ×" + std::to_string(files.size());
                 game.folder = displayFolder(location.parent_path());
                 for (const Candidate &file : files) {

@@ -12,8 +12,9 @@ namespace rd {
 
 namespace fs = std::filesystem;
 
-enum class System { plus4, c64, amiga, mega65 };
-constexpr std::array<System, 4> allSystems{System::plus4, System::c64, System::amiga, System::mega65};
+// pc: native Linux games, each a program in a folder of its own
+enum class System { plus4, c64, amiga, mega65, pc };
+constexpr std::array<System, 5> allSystems{System::plus4, System::c64, System::amiga, System::mega65, System::pc};
 
 const char *systemName(System system);   // "Plus/4"
 const char *systemId(System system);     // "plus4", as in library.conf
@@ -23,7 +24,7 @@ struct Game {
     System system{};
     std::string title;    // "Lotus Esprit Turbo Challenge"
     std::string details;  // "1990 · Gremlin"
-    std::string format;   // "ADF", "D81", ...
+    std::string format;   // "ADF", "D81", ..., "Linux · x86-64"
     std::string folder;   // where it lies, for display
     std::string key;      // stable identity (favorites, last played)
     std::vector<fs::path> files; // the media in order (disk 1, 2, ...); names inside `archive` if set
